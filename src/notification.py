@@ -25,7 +25,12 @@ from enum import Enum
 
 from src.config import Config, get_config
 from src.enums import ReportType
-from src.market_phase_summary import format_public_market_status_line, format_public_phase_pack_excerpt
+from src.core.trading_calendar import format_report_timestamp, get_market_for_stock, resolve_report_date
+from src.market_phase_summary import (
+    format_public_market_status_line,
+    format_public_phase_pack_excerpt,
+    report_date_from_market_phase_summary,
+)
 from src.notification_routing import (
     get_notification_route_config,
     split_notification_route_channels,
@@ -457,6 +462,37 @@ class NotificationService(
             if model:
                 models.append(model)
         return list(dict.fromkeys(models))
+
+    @staticmethod
+    def _resolve_report_date(results: Any) -> str:
+        """
+        Resolve the session date shown in report titles.
+
+        Uses the market session the analysed quotes belong to (from each
+        result's market phase summary, or the stock's market calendar) instead
+        of the host wall-clock date. Falls back to the local date when results
+        are empty, span several session dates, or cannot be resolved.
+        """
+        fallback = datetime.now().strftime('%Y-%m-%d')
+        items = results if isinstance(results, (list, tuple)) else [results]
+        dates = set()
+        try:
+            for result in items:
+                if result is None:
+                    continue
+                resolved = report_date_from_market_phase_summary(
+                    getattr(result, "market_phase_summary", None)
+                )
+                if resolved is None:
+                    market = get_market_for_stock(getattr(result, "code", "") or "")
+                    if market is None:
+                        return fallback
+                    resolved = resolve_report_date(market).isoformat()
+                dates.add(resolved)
+        except Exception as exc:  # pragma: no cover - defensive fail-open
+            logger.warning("report date resolution fail-open: %s", exc)
+            return fallback
+        return dates.pop() if len(dates) == 1 else fallback
 
     def _public_phase_pack_excerpt(self, result: AnalysisResult, report_language: str) -> str:
         return format_public_phase_pack_excerpt(
@@ -915,7 +951,7 @@ class NotificationService(
             Markdown 格式的日报内容
         """
         if report_date is None:
-            report_date = datetime.now().strftime('%Y-%m-%d')
+            report_date = self._resolve_report_date(results)
         report_language = self._get_report_language(results)
         labels = get_report_labels(report_language)
 
@@ -924,7 +960,7 @@ class NotificationService(
             f"# 📅 {report_date} {labels['report_title']}",
             "",
             f"> {labels['analyzed_prefix']} **{len(results)}** {labels['stock_unit']} | "
-            f"{labels['generated_at_label']}：{datetime.now().strftime('%H:%M:%S')}",
+            f"{labels['generated_at_label']}：{format_report_timestamp('%H:%M:%S')}",
         ]
         self._append_market_status_line(report_lines, results, report_language)
         report_lines.extend(["---", ""])
@@ -1104,7 +1140,7 @@ class NotificationService(
         # 底部信息（去除免责声明）
         report_lines.extend([
             "",
-            f"*{labels['generated_at_label']}：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*",
+            f"*{labels['generated_at_label']}：{format_report_timestamp()}*",
         ])
 
         return "\n".join(report_lines)
@@ -1286,6 +1322,8 @@ class NotificationService(
         ma_label = _nlabel("Moving Averages", "均线", "이동평균")
         volume_analysis_label = _nlabel("Volume", "量能", "거래량")
         news_heading = _nlabel("News Flow", "消息面", "뉴스 흐름")
+        if report_date is None:
+            report_date = self._resolve_report_date(results)
         if getattr(config, 'report_renderer_enabled', False) and results:
             from src.services.report_renderer import render
             out = render(
@@ -1300,9 +1338,6 @@ class NotificationService(
             )
             if out:
                 return out
-
-        if report_date is None:
-            report_date = datetime.now().strftime('%Y-%m-%d')
 
         # 按评分排序（高分在前）
         sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
@@ -1613,7 +1648,7 @@ class NotificationService(
         # 底部（去除免责声明）
         report_lines.extend([
             "",
-            f"*{labels['generated_at_label']}：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*",
+            f"*{labels['generated_at_label']}：{format_report_timestamp()}*",
         ])
         models = self._collect_models_used(results)
         if models:
@@ -1641,14 +1676,14 @@ class NotificationService(
             out = render(
                 platform='wechat',
                 results=results,
-                report_date=datetime.now().strftime('%Y-%m-%d'),
+                report_date=self._resolve_report_date(results),
                 summary_only=self._report_summary_only,
                 extra_context={"report_language": report_language},
             )
             if out:
                 return out
 
-        report_date = datetime.now().strftime('%Y-%m-%d')
+        report_date = self._resolve_report_date(results)
 
         # 按评分排序
         sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
@@ -1807,7 +1842,7 @@ class NotificationService(
                 lines.append("")
 
         # 底部
-        lines.append(f"*{labels['report_time_label']}: {datetime.now().strftime('%H:%M')}*")
+        lines.append(f"*{labels['report_time_label']}: {format_report_timestamp('%H:%M')}*")
         models = self._collect_models_used(results)
         if models:
             lines.append(f"*{labels['analysis_model_label']}: {', '.join(models)}*")
@@ -1826,7 +1861,7 @@ class NotificationService(
         Returns:
             精简版 Markdown 内容
         """
-        report_date = datetime.now().strftime('%Y-%m-%d')
+        report_date = self._resolve_report_date(results)
         report_language = self._get_report_language(results)
         labels = get_report_labels(report_language)
 
@@ -1907,7 +1942,7 @@ class NotificationService(
             Brief markdown content.
         """
         if report_date is None:
-            report_date = datetime.now().strftime('%Y-%m-%d')
+            report_date = self._resolve_report_date(results)
         report_language = self._get_report_language(results)
         labels = get_report_labels(report_language)
         config = get_config()
@@ -1950,7 +1985,7 @@ class NotificationService(
             if self._append_data_sources_line(lines, r, labels):
                 lines.append("")
         lines.append("")
-        lines.append(f"*{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*")
+        lines.append(f"*{format_report_timestamp()}*")
         models = self._collect_models_used(results)
         if models:
             lines.append(f"*{labels['analysis_model_label']}: {', '.join(models)}*")

@@ -105,6 +105,28 @@ def render_market_phase_summary(phase_context: Any) -> Optional[Dict[str, Any]]:
     return summary
 
 
+def report_date_from_market_phase_summary(summary: Any) -> Optional[str]:
+    """
+    Return the session date (YYYY-MM-DD) a result's data belongs to.
+
+    Regular-session phases use ``session_date`` (partial bar of today); all
+    other phases use ``effective_daily_bar_date`` (latest completed session).
+    Returns None when the summary is missing or malformed.
+    """
+    payload = _as_mapping(summary)
+    if not payload:
+        return None
+    phase = _safe_text(payload.get("phase"))
+    key = "session_date" if phase in _INTRADAY_BUCKET_PHASES else "effective_daily_bar_date"
+    value = _safe_text(payload.get(key))
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value[:10], "%Y-%m-%d").date().isoformat()
+    except ValueError:
+        return None
+
+
 def extract_market_phase_summary(context_snapshot: Any) -> Optional[Dict[str, Any]]:
     """Extract and re-sanitize a persisted market phase summary."""
     snapshot = _as_mapping(context_snapshot)
