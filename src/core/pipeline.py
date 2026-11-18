@@ -53,6 +53,7 @@ from src.search_service import SearchService
 from src.analysis_context_pack_prompt import format_analysis_context_pack_prompt_section
 from src.analysis_context_pack_overview import render_analysis_context_pack_overview
 from src.market_phase_summary import MARKET_PHASE_SUMMARY_KEY, render_market_phase_summary
+from src.action_plan_guardrail import apply_action_plan_guardrail
 from src.daily_market_context_guardrail import apply_daily_market_context_guardrail
 from src.agent.final_explanation import (
     PipelineActionAdjustment,
@@ -914,6 +915,17 @@ class StockAnalysisPipeline:
                 )
                 if adjustments:
                     logger.info("[phase_decision_guardrail] Applied adjustments for %s: %s", code, adjustments)
+                action_plan_adjustments = apply_action_plan_guardrail(
+                    result,
+                    report_language=getattr(result, "report_language", None)
+                    or getattr(self.config, "report_language", "zh"),
+                )
+                if action_plan_adjustments:
+                    logger.info(
+                        "[action_plan_guardrail] Applied adjustments for %s: %s",
+                        code,
+                        action_plan_adjustments,
+                    )
                 market_context_adjustments = apply_daily_market_context_guardrail(
                     result,
                     daily_market_context=enhanced_context.get("daily_market_context"),
@@ -1778,6 +1790,36 @@ class StockAnalysisPipeline:
                     capture_pipeline_action_adjustment(
                         pipeline_adjustments,
                         source="market_phase",
+                        before=action_before_guardrail,
+                        after=action_after_guardrail,
+                    )
+                else:
+                    action_chain_valid = False
+                action_before_guardrail = getattr(result, "action", None)
+                advice_before_guardrail = getattr(result, "operation_advice", None)
+                action_plan_adjustments = apply_action_plan_guardrail(
+                    result,
+                    report_language=getattr(result, "report_language", None)
+                    or getattr(self.config, "report_language", "zh"),
+                )
+                if action_plan_adjustments:
+                    logger.info(
+                        "[action_plan_guardrail] Applied agent adjustments for %s: %s",
+                        code,
+                        action_plan_adjustments,
+                    )
+                self._refresh_decision_action_for_final_result(
+                    result,
+                    report_type=report_type.value,
+                    previous_operation_advice=advice_before_guardrail,
+                )
+                action_after_guardrail = normalize_decision_action(
+                    getattr(result, "action", None)
+                )
+                if action_chain_valid and action_after_guardrail is not None:
+                    capture_pipeline_action_adjustment(
+                        pipeline_adjustments,
+                        source="action_plan",
                         before=action_before_guardrail,
                         after=action_after_guardrail,
                     )

@@ -50,6 +50,8 @@ Web 展示必须把这些 wire value 映射为当前 UI 语言的用户可读标
 
 如果 `score >= 60` 但最终 `action` 是 `hold/watch`，或 `score < 40` 但最终 `action` 仍是 `hold/watch`，必须有明确 guardrail 解释，例如 `dashboard.decision_stability.reason`、`dashboard.decision_score_calibration.guardrail_reason` 或 `metadata.guardrail_reason`。风控降级会保留 `raw_score`、`adjusted_score`、`raw_action`、`final_action` 和原因；没有明确原因的中性动作在 DecisionSignal 提取时会按 canonical score 对齐为 `buy/reduce/sell`。
 
+报告生成阶段的作战计划校验（`src/action_plan_guardrail.py`）在 LLM 输出后、DecisionSignal 提取前执行：`decision_type=buy` 时，若止损不低于任一买入位或目标位、目标位不高于买入位、止损距较低买入位 <0.5%、盈亏比（以 `ideal_buy` 计）<1.5，或 `ideal_buy` 偏离现价超过 ±5%，则降级为观望，并通过 `dashboard.decision_score_calibration.guardrail_reason` 说明原因，避免按分数重新对齐为 `buy`；点位缺失时只追加提示；`hold` 结论若带条件买入点位，按同样规则校验但只追加提示，另提示止损不低于现价或目标位；`position_strategy.risk_control` 中出现的价格与止损位相差超过 0.5% 时提示存在两个止损位；非买入结论仍给出正仓位（如 `3/10`）时只追加提示，不改变动作。模型给出的点位与仓位文本不会被改写，校验明细写入 `dashboard.action_plan_validation`。
+
 ## 生命周期、去重与状态
 
 `src/services/decision_signal_service.py` 是信号生命周期的主入口：
