@@ -43,6 +43,34 @@ US_INDEX_MAPPING = {
 }
 
 
+# Yahoo Finance 符号 -> 英文显示名（英文报告使用）
+US_INDEX_ENGLISH_NAMES = {
+    '^GSPC': 'S&P 500',
+    '^DJI': 'Dow Jones Industrial Average',
+    '^IXIC': 'Nasdaq Composite',
+    '^NDX': 'Nasdaq-100',
+    '^VIX': 'CBOE Volatility Index (VIX)',
+    '^RUT': 'Russell 2000',
+}
+
+
+def get_us_index_english_name(code_or_name: str) -> "str | None":
+    """
+    Return the English display name of a known US index.
+
+    Accepts a user/Yahoo code ('SPX', '^GSPC') or the Chinese display name
+    stored in US_INDEX_MAPPING ('标普500指数'). Returns None when unknown.
+    """
+    text = (code_or_name or '').strip()
+    yf_symbol, _ = get_us_index_yf_symbol(text)
+    if yf_symbol is None:
+        for symbol, cn_name in US_INDEX_MAPPING.values():
+            if cn_name == text:
+                yf_symbol = symbol
+                break
+    return US_INDEX_ENGLISH_NAMES.get(yf_symbol) if yf_symbol else None
+
+
 def is_us_index_code(code: str) -> bool:
     """
     判断代码是否为美股指数符号。
