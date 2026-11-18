@@ -26,7 +26,7 @@ from src.report_language import normalize_report_language
 from src.search_service import SearchService
 from src.core.market_profile import get_profile, MarketProfile
 from src.core.market_strategy import get_market_strategy_blueprint
-from src.core.trading_calendar import format_report_timestamp, get_market_now, resolve_report_date
+from src.core.trading_calendar import get_market_now
 from src.llm.backend_registry import (
     LOCAL_CLI_GENERATION_BACKEND_IDS,
     LITELLM_BACKEND_ID,
@@ -589,14 +589,8 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
         Returns:
             MarketOverview: 市场概览数据对象
         """
-        if self.region == "tw":
-            # Existing contract: TW reviews use the natural Taipei date.
-            today = get_market_now("tw").strftime('%Y-%m-%d')
-        else:
-            # Label the review with the market session the quotes belong to,
-            # not the host wall-clock date (post-close runs crossing midnight
-            # UTC, weekend runs, desktop clients in other time zones).
-            today = resolve_report_date(self.region).isoformat()
+        now = get_market_now("tw") if self.region == "tw" else datetime.now()
+        today = now.strftime('%Y-%m-%d')
         overview = MarketOverview(date=today)
         
         # 1. 获取主要指数行情（按 region 切换 A 股/美股）
@@ -2039,7 +2033,7 @@ Market conditions can change quickly. The data above is for reference only and d
 {self._get_strategy_markdown_block(template_language)}
 
 ---
-*Review Time: {format_report_timestamp('%H:%M')}*
+*Review Time: {datetime.now().strftime('%H:%M')}*
 """
             return report
 
@@ -2103,7 +2097,7 @@ Market conditions can change quickly. The data above is for reference only and d
 - 市场有风险，投资需谨慎。以上数据仅供参考，不构成投资建议。
 
 ---
-*复盘时间: {format_report_timestamp('%H:%M')}*
+*复盘时间: {datetime.now().strftime('%H:%M')}*
 """
     
     def _run_daily_review_parts(self) -> MarketLightReviewResult:

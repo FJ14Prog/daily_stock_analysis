@@ -284,52 +284,6 @@ def get_effective_trading_date(
         return fallback_date
 
 
-_REGULAR_SESSION_PHASES = frozenset({"intraday", "lunch_break", "closing_auction"})
-
-
-def resolve_report_date(
-    market: Optional[str], current_time: Optional[datetime] = None
-) -> date:
-    """
-    Resolve the market session date that a report's data refers to.
-
-    Report titles must show the trading session the quotes belong to, not the
-    wall-clock date of the machine that generated the report (a post-close run
-    that crosses midnight UTC, or a weekend run, would otherwise mislabel it).
-
-    Rules:
-    - During the regular session (intraday / lunch break / closing auction):
-      today's market-local session date (data is a partial bar of today).
-    - Otherwise: ``get_effective_trading_date()`` (latest completed session).
-    - Unknown market: local system date (legacy behaviour, fail-open).
-    """
-    if market not in MARKET_TIMEZONE:
-        return (current_time or datetime.now()).date()
-
-    phase = infer_market_phase(market, current_time=current_time)
-    if phase.value in _REGULAR_SESSION_PHASES:
-        return get_market_now(market, current_time=current_time).date()
-    return get_effective_trading_date(market, current_time=current_time)
-
-
-def format_report_timestamp(
-    fmt: str = "%Y-%m-%d %H:%M:%S", current_time: Optional[datetime] = None
-) -> str:
-    """
-    Format a report generation timestamp with an explicit UTC offset.
-
-    Example: ``2026-11-18 03:06:35 (UTC+01:00)``. Aware datetimes keep their
-    own zone; naive ones (including the default ``datetime.now()``) are treated
-    as system-local time. The numeric offset is used instead of ``%Z`` because
-    Windows returns long, localized zone names.
-    """
-    moment = current_time if current_time is not None else datetime.now()
-    if moment.tzinfo is None:
-        moment = moment.astimezone()
-    offset = moment.strftime("%z") or "+0000"
-    return f"{moment.strftime(fmt)} (UTC{offset[:3]}:{offset[3:5]})"
-
-
 def resolve_historical_daily_bar_date(
     market: Optional[str],
     target_date: date,
