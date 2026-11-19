@@ -6,6 +6,7 @@ Email 发送提醒服务
 1. 通过 SMTP 发送 Email 消息
 """
 import logging
+import re
 from typing import Optional, List
 from datetime import datetime
 from email.mime.text import MIMEText
@@ -18,9 +19,31 @@ import smtplib
 from data_provider.base import normalize_stock_code
 from src.config import Config
 from src.formatters import markdown_to_html_document, strip_hidden_markdown_metadata
+from src.report_language import normalize_report_language
 
 
 logger = logging.getLogger(__name__)
+
+
+# Default subject titles per report language: (stock report, market review).
+_SUBJECT_TITLES = {
+    "zh": ("股票智能分析报告", "大盘复盘"),
+    "en": ("Stock Analysis Report", "Market Review"),
+    "ko": ("종목 분석 리포트", "시황 리뷰"),
+}
+_IMAGE_BODY_TEXT = {
+    "zh": ("报告已生成，详见下方图片。", "报告已生成，详见下方图片（点击可查看大图）：", "股票分析报告"),
+    "en": ("The report is attached as an image below.", "The report is attached as an image below (click to enlarge):", "Stock analysis report"),
+    "ko": ("리포트가 아래 이미지로 생성되었습니다.", "리포트가 아래 이미지로 생성되었습니다(클릭하여 확대):", "종목 분석 리포트"),
+}
+_SUBJECT_HEADING_RE = re.compile(r"^#{1,6}\s+(.+?)\s*$", re.MULTILINE)
+_SUBJECT_DATE_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
+_SUBJECT_MARKET_REVIEW_RE = re.compile(
+    r"(?:大盘复盘|市场复盘|market\s+(?:review|recap)|시황\s*리뷰)", re.IGNORECASE
+)
+_SUBJECT_DASHBOARD_RE = re.compile(
+    r"(?:决策仪表盘|decision\s+dashboard|의사결정\s*대시보드)", re.IGNORECASE
+)
 
 
 # SMTP 服务器配置（自动识别）
@@ -64,7 +87,39 @@ class EmailSender:
             'receivers': config.email_receivers or ([config.email_sender] if config.email_sender else []),
         }
         self._stock_email_groups = getattr(config, 'stock_email_groups', None) or []
+        raw_language = getattr(config, 'report_language', 'zh')
+        self._email_report_language = normalize_report_language(
+            raw_language if isinstance(raw_language, str) else 'zh'
+        )
         
+    def _build_default_subject(self, content: str) -> str:
+        """Build the default subject in the report language.
+
+        The date is taken from the first report heading that carries one, which
+        is the market session date (see ``resolve_report_date``), so the subject
+        matches the title inside the email. Falls back to today's date.
+        """
+        language = getattr(self, "_email_report_language", "zh")
+        stock_title, market_title = _SUBJECT_TITLES.get(language, _SUBJECT_TITLES["zh"])
+        headings = [match.group(1) for match in _SUBJECT_HEADING_RE.finditer(content or "")]
+
+        is_market_review = (
+            bool(headings)
+            and bool(_SUBJECT_MARKET_REVIEW_RE.search(headings[0]))
+            and not any(_SUBJECT_DASHBOARD_RE.search(heading) for heading in headings)
+        )
+        title = market_title if is_market_review else stock_title
+
+        date_str = None
+        for heading in headings:
+            match = _SUBJECT_DATE_RE.search(heading)
+            if match:
+                date_str = match.group(1)
+                break
+        if date_str is None:
+            date_str = datetime.now().strftime('%Y-%m-%d')
+        return f"📈 {title} - {date_str}"
+
     def _is_email_configured(self) -> bool:
         """检查邮件配置是否完整（只需邮箱和授权码）"""
         return bool(self._email_config['sender'] and self._email_config['password'])
@@ -161,11 +216,9 @@ class EmailSender:
         
         try:
             # 生成主题
-            if subject is None:
-                date_str = datetime.now().strftime('%Y-%m-%d')
-                subject = f"📈 股票智能分析报告 - {date_str}"
-
             sanitized_content = strip_hidden_markdown_metadata(content).strip()
+            if subject is None:
+                subject = self._build_default_subject(sanitized_content)
             
             # 将 Markdown 转换为简单 HTML
             html_content = markdown_to_html_document(sanitized_content)
@@ -236,18 +289,19 @@ class EmailSender:
         receivers = receivers or self._email_config['receivers']
         server: Optional[smtplib.SMTP] = None
         try:
-            date_str = datetime.now().strftime('%Y-%m-%d')
-            subject = f"📈 股票智能分析报告 - {date_str}"
+            subject = self._build_default_subject("")
+            language = getattr(self, "_email_report_language", "zh")
+            plain_text, html_intro, image_alt = _IMAGE_BODY_TEXT.get(language, _IMAGE_BODY_TEXT["zh"])
             msg = MIMEMultipart('related')
             msg['Subject'] = Header(subject, 'utf-8')
             msg['From'] = self._format_sender_address(sender)
             msg['To'] = ', '.join(receivers)
 
             alt = MIMEMultipart('alternative')
-            alt.attach(MIMEText('报告已生成，详见下方图片。', 'plain', 'utf-8'))
+            alt.attach(MIMEText(plain_text, 'plain', 'utf-8'))
             html_body = (
-                '<p>报告已生成，详见下方图片（点击可查看大图）：</p>'
-                '<p><img src="cid:report-image" alt="股票分析报告" style="max-width:100%%;" /></p>'
+                f'<p>{html_intro}</p>'
+                f'<p><img src="cid:report-image" alt="{image_alt}" style="max-width:100%;" /></p>'
             )
             alt.attach(MIMEText(html_body, 'html', 'utf-8'))
             msg.attach(alt)
