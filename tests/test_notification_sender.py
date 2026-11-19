@@ -2322,3 +2322,61 @@ class TestTelegramSender(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestEmailDefaultSubject(unittest.TestCase):
+    """Default email subject follows report language and the session date in the report."""
+
+    STOCK_EN = "# 🎯 2026-11-18 Decision Dashboard\n\nAnalyzed 3 stocks\n\n## ⚪ Apple Inc. (AAPL)\n"
+    MARKET_EN = "# 📈 Market Review\n\n## 2026-11-18 US Market Recap\n\n### 1. Market Summary\n"
+    MERGED_EN = MARKET_EN + "\n---\n\n# 🚀 Stock Decision Dashboard\n\n# 🎯 2026-11-18 Decision Dashboard\n"
+
+    def _sender(self, language):
+        return EmailSender(_config(report_language=language))
+
+    def test_english_stock_report_uses_session_date_from_title(self):
+        subject = self._sender("en")._build_default_subject(self.STOCK_EN)
+        self.assertEqual(subject, "📈 Stock Analysis Report - 2026-11-18")
+
+    def test_english_market_review_has_its_own_subject(self):
+        subject = self._sender("en")._build_default_subject(self.MARKET_EN)
+        self.assertEqual(subject, "📈 Market Review - 2026-11-18")
+
+    def test_merged_report_uses_stock_subject(self):
+        subject = self._sender("en")._build_default_subject(self.MERGED_EN)
+        self.assertEqual(subject, "📈 Stock Analysis Report - 2026-11-18")
+
+    def test_chinese_subject_keeps_legacy_title(self):
+        content = "# 🎯 2026-11-18 决策仪表盘\n\n共分析3只股票\n"
+        subject = self._sender("zh")._build_default_subject(content)
+        self.assertEqual(subject, "📈 股票智能分析报告 - 2026-11-18")
+
+    def test_chinese_market_review_subject(self):
+        content = "# 📈 大盘复盘\n\n## 2026-11-18 大盘复盘\n"
+        subject = self._sender("zh")._build_default_subject(content)
+        self.assertEqual(subject, "📈 大盘复盘 - 2026-11-18")
+
+    def test_no_dated_heading_falls_back_to_today(self):
+        with mock.patch("src.notification_sender.email_sender.datetime") as fake_dt:
+            fake_dt.now.return_value.strftime.return_value = "2026-11-19"
+            subject = self._sender("en")._build_default_subject("plain body without headings")
+        self.assertEqual(subject, "📈 Stock Analysis Report - 2026-11-19")
+
+    def test_send_to_email_uses_default_subject(self):
+        sender = EmailSender(
+            _config(
+                report_language="en",
+                email_sender="a@example.com",
+                email_password="p",
+                email_receivers=["b@example.com"],
+            )
+        )
+        with mock.patch("src.notification_sender.email_sender.smtplib.SMTP_SSL") as smtp_cls:
+            self.assertTrue(sender.send_to_email(self.STOCK_EN))
+        message = smtp_cls.return_value.send_message.call_args.args[0]
+        from email.header import decode_header, make_header
+
+        self.assertEqual(
+            str(make_header(decode_header(message["Subject"]))),
+            "📈 Stock Analysis Report - 2026-11-18",
+        )

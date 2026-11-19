@@ -826,6 +826,23 @@ def _market_review_report_text(review_result: Any) -> str:
     return review_result if isinstance(review_result, str) else ""
 
 
+_PUSH_SECTION_HEADINGS = {
+    "zh": {"market_review": "📈 大盘复盘", "dashboard": "🚀 个股决策仪表盘"},
+    "en": {"market_review": "📈 Market Review", "dashboard": "🚀 Stock Decision Dashboard"},
+    "ko": {"market_review": "📈 시황 리뷰", "dashboard": "🚀 종목 의사결정 대시보드"},
+}
+
+
+def _push_section_heading(config: Any, section: str) -> str:
+    """Localized top-level heading for pushed/merged report sections."""
+    from src.report_language import normalize_report_language
+
+    raw_language = getattr(config, "report_language", "zh")
+    language = normalize_report_language(raw_language if isinstance(raw_language, str) else "zh")
+    headings = _PUSH_SECTION_HEADINGS.get(language, _PUSH_SECTION_HEADINGS["zh"])
+    return f"# {headings[section]}"
+
+
 def _save_reused_market_review_report(
     notifier: Any,
     market_report: str,
@@ -1191,7 +1208,7 @@ def run_full_analysis(
                     and pipeline.notifier.is_available()
                 ):
                     if pipeline.notifier.send(
-                        f"# 📈 大盘复盘\n\n{market_report}",
+                        f"{_push_section_heading(config, 'market_review')}\n\n{market_report}",
                         email_send_to_all=True,
                         route_type="report",
                     ):
@@ -1276,13 +1293,13 @@ def run_full_analysis(
         if merge_notification and (results or market_report) and not args.no_notify:
             parts = []
             if market_report:
-                parts.append(f"# 📈 大盘复盘\n\n{market_report}")
+                parts.append(f"{_push_section_heading(config, 'market_review')}\n\n{market_report}")
             if results:
                 dashboard_content = pipeline.notifier.generate_aggregate_report(
                     results,
                     getattr(config, 'report_type', 'simple'),
                 )
-                parts.append(f"# 🚀 个股决策仪表盘\n\n{dashboard_content}")
+                parts.append(f"{_push_section_heading(config, 'dashboard')}\n\n{dashboard_content}")
             if parts:
                 combined_content = "\n\n---\n\n".join(parts)
                 if pipeline.notifier.is_available():
@@ -1321,7 +1338,7 @@ def run_full_analysis(
 
                 # 添加大盘复盘内容（如果有）
                 if market_report:
-                    full_content += f"# 📈 大盘复盘\n\n{market_report}\n\n---\n\n"
+                    full_content += f"{_push_section_heading(config, 'market_review')}\n\n{market_report}\n\n---\n\n"
 
                 # 添加个股决策仪表盘（使用 NotificationService 生成，按 report_type 分支）
                 if results:
@@ -1329,7 +1346,7 @@ def run_full_analysis(
                         results,
                         getattr(config, 'report_type', 'simple'),
                     )
-                    full_content += f"# 🚀 个股决策仪表盘\n\n{dashboard_content}"
+                    full_content += f"{_push_section_heading(config, 'dashboard')}\n\n{dashboard_content}"
 
                 # 3. 创建文档
                 doc_url = feishu_doc.create_daily_doc(doc_title, full_content)
