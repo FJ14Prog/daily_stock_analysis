@@ -69,6 +69,7 @@ from bot.models import BotMessage
 from src.utils.sanitize import sanitize_diagnostic_text
 from src.formatters import strip_hidden_markdown_metadata
 from src.utils.data_processing import (
+    format_volume_metric,
     signal_attribution_has_content,
     signal_attribution_weight_items,
     normalize_model_used,
@@ -1495,8 +1496,8 @@ class NotificationService(
                     # 量能分析
                     if vol_data:
                         report_lines.extend([
-                            f"**{labels['volume_label']}**: {labels['volume_ratio_label']} {vol_data.get('volume_ratio', 'N/A')} ({vol_data.get('volume_status', '')}) | "
-                            f"{labels['turnover_rate_label']} {vol_data.get('turnover_rate', 'N/A')}%",
+                            f"**{labels['volume_label']}**: {labels['volume_ratio_label']} {format_volume_metric(vol_data.get('volume_ratio'))} ({vol_data.get('volume_status', '')}) | "
+                            f"{labels['turnover_rate_label']} {format_volume_metric(vol_data.get('turnover_rate'), '%')}",
                             f"💡 *{vol_data.get('volume_meaning', '')}*",
                             "",
                         ])

@@ -340,3 +340,60 @@ def test_refines_hold_pullback_near_support_as_shakeout_watch() -> None:
     assert result.decision_type == "hold"
     assert result.operation_advice == "洗盘观察"
     assert "更适合按洗盘观察处理" in result.risk_warning
+
+
+# --------------------------------------------------------------------------- non A-share markets
+
+
+def _us_result(**kwargs) -> AnalysisResult:
+    result = _result(**kwargs)
+    result.code = "AAPL"
+    result.name = "Apple Inc."
+    result.report_language = "en"
+    return result
+
+
+def test_us_buy_is_not_downgraded_for_missing_capital_flow() -> None:
+    # 31.0 sits just above support 30.0 (pullback buy), far from resistance 34.0.
+    result = _us_result(decision_type="buy", operation_advice="Buy", score=72, current_price=31.0)
+
+    stabilize_decision_with_structure(result, None, _unsupported_fund_flow())
+
+    assert result.decision_type == "buy"
+    assert result.operation_advice == "Buy"
+    assert "Capital flow" not in str(result.dashboard.get("core_conclusion"))
+
+
+def test_us_buy_mid_range_is_not_downgraded() -> None:
+    result = _us_result(decision_type="buy", operation_advice="Buy", score=72, current_price=32.0)
+    stabilize_decision_with_structure(result, None, _unsupported_fund_flow())
+    assert result.decision_type == "buy"
+
+
+def test_us_buy_near_resistance_still_downgraded_without_flow_wording() -> None:
+    result = _us_result(decision_type="buy", operation_advice="Buy", score=72, current_price=33.5)
+
+    stabilize_decision_with_structure(result, None, _unsupported_fund_flow())
+
+    assert result.decision_type == "hold"
+    reason = result.dashboard["decision_stability"]["reason"]
+    assert reason == (
+        "Price is near resistance without a confirmed breakout, so buying into resistance is not actionable."
+    )
+    assert "inflow" not in result.dashboard["core_conclusion"]["position_advice"]["no_position"]
+    assert result.dashboard["decision_stability"]["capital_flow_bias"] == "not_applicable"
+
+
+def test_us_sell_near_support_uses_neutral_wording() -> None:
+    result = _us_result(decision_type="sell", operation_advice="Sell", score=30, current_price=30.5)
+    stabilize_decision_with_structure(result, None, _unsupported_fund_flow())
+    assert result.decision_type == "hold"
+    assert result.dashboard["decision_stability"]["reason"] == (
+        "Price is near support, so a one-day drop is not enough to sell."
+    )
+
+
+def test_a_share_buy_still_downgraded_when_capital_flow_unavailable() -> None:
+    result = _result(decision_type="buy", operation_advice="买入", score=72, current_price=31.0)
+    stabilize_decision_with_structure(result, None, _unsupported_fund_flow())
+    assert result.decision_type == "hold"

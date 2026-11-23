@@ -1105,6 +1105,11 @@ def stabilize_decision_with_structure(
         )
 
         flow_bias, flow_reason = _capital_flow_bias_with_status(fundamental_context)
+        if flow_bias == "unavailable" and not _capital_flow_applies_to_market(result):
+            # Main-force capital flow is an A-share data concept. For other
+            # markets its absence is structural, not a data failure: do not
+            # downgrade for it, and still apply the price-structure checks.
+            flow_bias = "not_applicable"
         if flow_bias == "unavailable":
             if isinstance(fundamental_context, dict) and "capital_flow" in fundamental_context:
                 if decision_type == "buy" or advice_decision_type == "buy":
@@ -1375,6 +1380,17 @@ def _capital_flow_bias_with_status(
     return "neutral", "neutral"
 
 
+def _capital_flow_applies_to_market(result: "AnalysisResult") -> bool:
+    """Capital-flow gating only applies to A-shares (the only market with that data)."""
+    code = str(getattr(result, "code", "") or "").strip()
+    if not code:
+        return True
+    try:
+        return detect_market(code) == "cn"
+    except Exception:
+        return True
+
+
 def _capital_flow_status_for_stability(reason: str, language: str) -> str:
     normalized = str(reason or "").strip().lower()
     if "not_supported" in normalized or "unsupported" in normalized or "not available" in normalized:
@@ -1613,6 +1629,9 @@ def _set_structural_hold_wording(
             "sell_with_inflow": "主力资金流入与卖出结论冲突，先按持有观察处理并跟踪支撑失效。",
             "hold_shakeout": "价格回落至支撑附近但资金未确认流出，更适合按洗盘观察处理。",
             "hold_mid_range": "价格处于支撑与压力之间且资金流不明确，维持震荡观望更可操作。",
+            "buy_near_resistance_no_flow": "价格接近压力位且未有效突破，不宜在压力位附近追买。",
+            "sell_near_support_no_flow": "价格贴近支撑位，单日下跌不足以作为卖出依据。",
+            "hold_shakeout_no_flow": "价格回落至支撑附近，更适合按洗盘观察处理。",
         },
         "en": {
             "buy_near_resistance": "Price is near resistance without confirmed main-force inflow, so chasing the rebound is not actionable.",
@@ -1621,6 +1640,9 @@ def _set_structural_hold_wording(
             "sell_with_inflow": "Main-force inflow conflicts with a sell call; hold and watch for support failure.",
             "hold_shakeout": "Price pulled back near support without confirmed outflow, which is better treated as a shakeout watch.",
             "hold_mid_range": "Price is between support and resistance with neutral fund flow, so range-bound watch is more actionable.",
+            "buy_near_resistance_no_flow": "Price is near resistance without a confirmed breakout, so buying into resistance is not actionable.",
+            "sell_near_support_no_flow": "Price is near support, so a one-day drop is not enough to sell.",
+            "hold_shakeout_no_flow": "Price pulled back near support, which is better treated as a shakeout watch.",
         },
         "ko": {
             "buy_near_resistance": "가격이 저항선에 근접했고 주력 자금 유입이 확인되지 않아 단기 반등만 보고 추격 매수하기 어렵습니다.",
@@ -1629,9 +1651,15 @@ def _set_structural_hold_wording(
             "sell_with_inflow": "주력 자금 유입이 매도 결론과 상충하므로 우선 보유 관찰하며 지지 이탈을 추적합니다.",
             "hold_shakeout": "가격이 지지선 부근까지 눌렸지만 유출이 확인되지 않아 흔들기 관찰로 처리하는 것이 적절합니다.",
             "hold_mid_range": "가격이 지지선과 저항선 사이이고 자금 흐름이 불명확해 박스권 관망이 더 실행 가능합니다.",
+            "buy_near_resistance_no_flow": "가격이 저항선에 근접했지만 돌파가 확인되지 않아 저항선 부근 추격 매수는 어렵습니다.",
+            "sell_near_support_no_flow": "가격이 지지선에 근접해 하루 하락만으로 매도하기 어렵습니다.",
+            "hold_shakeout_no_flow": "가격이 지지선 부근까지 눌려 흔들기 관찰로 처리하는 것이 적절합니다.",
         },
     }
-    reason = reason_templates.get(language, reason_templates["en"]).get(reason_key, "")
+    templates_for_language = reason_templates.get(language, reason_templates["en"])
+    if flow_bias == "not_applicable" and f"{reason_key}_no_flow" in templates_for_language:
+        reason_key = f"{reason_key}_no_flow"
+    reason = templates_for_language.get(reason_key, "")
     if calibrate_score:
         final_action = "watch" if advice_key in {"range", "shakeout"} else "hold"
         _bound_hold_watch_sentiment_score(result, reason=reason, final_action=final_action)
@@ -1650,6 +1678,9 @@ def _set_structural_hold_wording(
     elif language == "ko":
         no_position = "현금 보유 시 추격·투매를 삼가고 지지 확인·대량 돌파·자금 재유입 후 행동하세요."
         has_position = "보유 시 핵심 지지선을 리스크 관리선으로 삼고, 이탈 전까지 관찰과 분할 관리 위주로 대응하세요."
+    elif flow_bias == "not_applicable":
+        no_position = "Do not chase or panic; wait for support confirmation or a confirmed breakout."
+        has_position = "Use key support as the risk line and manage position size unless support fails."
     else:
         no_position = "Do not chase or panic; wait for support confirmation, breakout, or renewed inflow."
         has_position = "Use key support as the risk line and manage position size unless support fails."
