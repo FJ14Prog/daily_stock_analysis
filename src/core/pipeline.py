@@ -49,7 +49,7 @@ from src.report_language import (
     localize_trend_prediction,
     normalize_report_language,
 )
-from src.search_service import SearchService
+from src.search_service import SearchService, collect_news_sources
 from src.analysis_context_pack_prompt import format_analysis_context_pack_prompt_section
 from src.analysis_context_pack_overview import render_analysis_context_pack_overview
 from src.market_phase_summary import MARKET_PHASE_SUMMARY_KEY, render_market_phase_summary
@@ -682,6 +682,7 @@ class StockAnalysisPipeline:
 
             # Step 4: 多维度情报搜索（最新消息+风险排查+业绩预期）
             news_context = None
+            news_sources_payload = None
             persisted_intelligence_context = self._load_persisted_intelligence_context(
                 code=code,
                 stock_name=stock_name,
@@ -709,6 +710,13 @@ class StockAnalysisPipeline:
                 # 格式化情报报告
                 if intel_results:
                     news_context = self.search_service.format_intel_report(intel_results, stock_name)
+                    try:
+                        news_sources_payload = {
+                            "window_days": self.search_service._effective_news_window_days(),
+                            "items": collect_news_sources(intel_results),
+                        }
+                    except Exception as exc:
+                        logger.debug("%s(%s) news sources skipped: %s", stock_name, code, exc)
                     total_results = sum(
                         len(r.results) for r in intel_results.values() if r.success
                     )
@@ -893,6 +901,8 @@ class StockAnalysisPipeline:
             if result:
                 self._emit_progress(94, f"{stock_name}：正在校验并整理分析结果")
                 result.query_id = query_id
+                if news_sources_payload and news_sources_payload.get("items"):
+                    result.news_sources = news_sources_payload
                 realtime_data = enhanced_context.get('realtime', {})
                 result.current_price = realtime_data.get('price')
                 result.change_pct = realtime_data.get('change_pct')

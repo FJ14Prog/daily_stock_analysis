@@ -1423,6 +1423,7 @@ class NotificationService(
                     if intel.get('latest_news'):
                         report_lines.append("")
                         report_lines.append(f"**📢 {labels['latest_news_label']}**: {intel['latest_news']}")
+                    report_lines.extend(self._news_sources_lines(result, labels))
                     report_lines.append("")
 
                 # ========== 核心结论 ==========
@@ -2424,6 +2425,27 @@ class NotificationService(
         stale_note = self._financial_staleness_note(report, report_language)
         if stale_note:
             lines.extend([stale_note, ""])
+
+    @staticmethod
+    def _news_sources_lines(result: Any, labels: Dict[str, str]) -> List[str]:
+        """Render the news sources actually given to the model (code-generated links)."""
+        payload = getattr(result, "news_sources", None)
+        if not isinstance(payload, dict):
+            return []
+        items = [item for item in payload.get("items") or [] if isinstance(item, dict) and item.get("url")]
+        if not items:
+            return []
+        note = ""
+        days = payload.get("window_days")
+        if days and labels.get("news_sources_note"):
+            note = f" ({labels['news_sources_note'].format(days=days)})"
+        lines = ["", f"**📎 {labels.get('news_sources_label', 'Sources')}**{note}:"]
+        for item in items:
+            title = str(item.get("title") or item["url"]).replace("[", "(").replace("]", ")").strip()
+            meta = " · ".join(str(part) for part in (item.get("date"), item.get("source")) if part)
+            prefix = f"{meta} · " if meta else ""
+            lines.append(f"- {prefix}[{title}]({item['url']})")
+        return lines
 
     @staticmethod
     def _financial_staleness_note(report: Dict[str, Any], report_language: Optional[str]) -> str:
