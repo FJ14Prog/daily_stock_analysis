@@ -116,5 +116,5 @@ def test_workflow_wires_ledger_branch() -> None:
     push = steps["Push paper ledger"]
     assert push["continue-on-error"] is True
     assert "steps.paper_ledger.outcome == 'success'" in push["if"]
-    analysis_script = steps["执行股票分析"]["run"]
+    analysis_script = steps["Run stock analysis"]["run"]
     assert 'export PAPER_LEDGER_FILE="paper-ledger/signals.jsonl"' in analysis_script

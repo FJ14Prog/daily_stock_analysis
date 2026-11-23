@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- [chore] GitHub Actions 每日分析工作流显示名改为英文 `Daily Stock Analysis`，步骤名与手动触发参数说明同步改为英文（文件名 `00-daily-analysis.yml`、定时与行为不变）；相关测试与文档入口同步更新。
+
 - [新功能] 个股情报区新增“📎 信息来源 / Sources”：列出实际送入模型的新闻（与提示词同序、每维度前 4 条、按 URL 去重、最多 6 条），显示发布日期、来源域名与可点击标题，由代码生成链接，不依赖模型输出；提示词与情报文本明确方括号日期为文章发布日期，并要求在正文注明更早事件的发生日期，不得把旧事件写成新事件。`AnalysisResult` 新增可选字段 `news_sources`。
 
 - [新功能] 纸面交易周度复盘：新增 `paper-evaluation.yml`（每周六及手动触发）与 `scripts/evaluate_paper_ledger.py`，按 yfinance 日线评估 `paper-ledger/signals.jsonl` 中的信号（限价买点入场 5 个交易日有效、止损/目标/20 日超时退出、跳空按开盘价成交、同日触及止损与目标按止损、单边 10bps 成本、拆股剔除、仅使用信号日之后的数据），输出 `evaluations.csv`、`summary.md` 并邮件发送胜率、期望 R、最大回撤及与个股持有/SPY 对比；逻辑见 `src/services/paper_evaluator.py`，规则见 `docs/paper-ledger.md`。
