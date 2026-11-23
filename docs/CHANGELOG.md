@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- [新功能] 纸面交易周度复盘：新增 `paper-evaluation.yml`（每周六及手动触发）与 `scripts/evaluate_paper_ledger.py`，按 yfinance 日线评估 `paper-ledger/signals.jsonl` 中的信号（限价买点入场 5 个交易日有效、止损/目标/20 日超时退出、跳空按开盘价成交、同日触及止损与目标按止损、单边 10bps 成本、拆股剔除、仅使用信号日之后的数据），输出 `evaluations.csv`、`summary.md` 并邮件发送胜率、期望 R、最大回撤及与个股持有/SPY 对比；逻辑见 `src/services/paper_evaluator.py`，规则见 `docs/paper-ledger.md`。
+
 - [新功能] 纸面交易信号台账（可选）：设置 `PAPER_LEDGER_FILE` 后每次分析按股票追加一行 JSON（交易日、结论、评分、价格、买点、止损、目标、盈亏比、作战计划校验结果、模型），用于后续评估信号表现；GitHub Actions 在 `paper-ledger` 分支存在时自动写入并推送到该分支（需要 `contents: write`），分支不存在时行为不变。详见 `docs/paper-ledger.md`。
 
 - [修复] 非 A 股（港股/美股等）不再因“主力资金流不可用”把买入降级为观望：资金流为 A 股特有数据，其缺失在这些市场属结构性缺失而非数据故障；改为按 `not_applicable` 继续执行价格结构校验（接近压力位追买、接近支撑位卖出、回踩支撑洗盘观察仍生效，文案不再提及资金流），A 股行为不变；量能分析中的量比/换手率为 None、非数值或 0 时显示 N/A，不再出现 `None%` / `0.0%`。

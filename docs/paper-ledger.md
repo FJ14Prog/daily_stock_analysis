@@ -44,3 +44,39 @@ cd - && git worktree remove ../dsa-paper-ledger
  "stop_loss": 347.49, "take_profit": 356.42, "risk_reward": 0.4473, "entry_distance_pct": 0.3433,
  "plan_violations": ["risk_reward_below_minimum"], "downgraded": false, "model": "gemini/gemini-3.6-flash"}
 ```
+
+## Weekly evaluation
+
+`.github/workflows/paper-evaluation.yml` runs every Saturday (and on manual
+dispatch). `scripts/evaluate_paper_ledger.py` reads `signals.jsonl`, downloads
+daily bars from yfinance (`auto_adjust=False`: split-adjusted, dividends not
+added back) for each ticker and SPY, and writes `evaluations.csv` (one row per
+signal, recomputed from scratch each run) and `summary.md` to the
+`paper-ledger` branch; the summary is emailed (`📊 Paper Trading Review - <date>`).
+Logic lives in `src/services/paper_evaluator.py` (pure, unit-tested).
+
+Rules (defaults; override with repository variables
+`PAPER_EVAL_ENTRY_VALID_SESSIONS`, `PAPER_EVAL_MAX_HOLD_SESSIONS`,
+`PAPER_EVAL_DIRECTION_SESSIONS`, `PAPER_EVAL_COST_BPS`):
+
+- Last ledger line per `(session_date, ticker)`; only bars after the session
+  date are used; today's (possibly partial) bar is ignored.
+- `buy` → trade; `hold` with a coherent plan (stop < ideal < target) → "shadow"
+  trade, to judge the downgrades; `sell` → direction check over 10 sessions.
+- Entry: limit at `ideal_buy`, valid 5 sessions; fills at the open if it gaps
+  below the limit, otherwise at the limit. Not filled after 5 sessions →
+  `not_filled`.
+- Exit: stop (at the open if it gaps through), target (at the open if it gaps
+  above), stop first when both touch the same bar, target on the fill bar only
+  if filled at the open, otherwise close after 20 sessions (`timeout`).
+  Unfinished trades are `open` and excluded from statistics.
+- Costs: 10 bps per side. R multiple = net P/L ÷ (ideal_buy − stop_loss).
+- A split inside the window excludes the signal.
+- Summary per group: signals, closed, open, fill rate, win rate, expectancy
+  (R), average net return, max drawdown of cumulative R, buy-and-hold of the
+  same stock and SPY over the same window, exit breakdown; flagged when fewer
+  than 30 closed trades.
+
+Limitations: daily bars cannot order intraday events (conservative
+assumptions above); shadow trades are hypothetical; results need months of
+signals before they mean anything.
