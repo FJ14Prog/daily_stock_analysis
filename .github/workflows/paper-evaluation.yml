@@ -1,0 +1,82 @@
+name: Paper trading review
+
+on:
+  schedule:
+    - cron: '17 9 * * 6'   # Saturdays 09:17 UTC
+  workflow_dispatch:
+    inputs:
+      send_email:
+        description: 'Send the summary by email'
+        required: false
+        default: true
+        type: boolean
+
+concurrency:
+  group: paper-ledger
+  cancel-in-progress: false
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    environment: STOCK_LIST
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Checkout paper ledger branch
+        id: paper_ledger
+        continue-on-error: true
+        uses: actions/checkout@v5
+        with:
+          ref: paper-ledger
+          path: paper-ledger
+
+      - name: Set up Python
+        if: steps.paper_ledger.outcome == 'success'
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        if: steps.paper_ledger.outcome == 'success'
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Evaluate ledger
+        if: steps.paper_ledger.outcome == 'success'
+        env:
+          EMAIL_SENDER: ${{ vars.EMAIL_SENDER || secrets.EMAIL_SENDER }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_RECEIVERS: ${{ vars.EMAIL_RECEIVERS || secrets.EMAIL_RECEIVERS }}
+          EMAIL_SENDER_NAME: ${{ vars.EMAIL_SENDER_NAME || secrets.EMAIL_SENDER_NAME || 'daily_stock_analysis' }}
+          REPORT_LANGUAGE: ${{ vars.REPORT_LANGUAGE || secrets.REPORT_LANGUAGE || '' }}
+        run: |
+          EMAIL_ARG=""
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ github.event.inputs.send_email }}" = "true" ]; then
+            EMAIL_ARG="--send-email"
+          fi
+          python scripts/evaluate_paper_ledger.py --ledger paper-ledger/signals.jsonl \
+            --entry-valid-sessions "${{ vars.PAPER_EVAL_ENTRY_VALID_SESSIONS || '5' }}" \
+            --max-hold-sessions "${{ vars.PAPER_EVAL_MAX_HOLD_SESSIONS || '20' }}" \
+            --direction-sessions "${{ vars.PAPER_EVAL_DIRECTION_SESSIONS || '10' }}" \
+            --cost-bps "${{ vars.PAPER_EVAL_COST_BPS || '10' }}" \
+            $EMAIL_ARG
+
+      - name: Push evaluation
+        if: steps.paper_ledger.outcome == 'success'
+        working-directory: paper-ledger
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A evaluations.csv summary.md 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "No evaluation changes."
+            exit 0
+          fi
+          git commit -m "evaluation: $(date -u +%Y-%m-%d) run ${{ github.run_id }}"
+          git push origin HEAD:paper-ledger || { git pull --rebase origin paper-ledger && git push origin HEAD:paper-ledger; }
