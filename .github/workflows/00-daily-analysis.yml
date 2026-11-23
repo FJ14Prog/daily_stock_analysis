@@ -34,6 +34,9 @@ jobs:
     # 兼容误将 STOCK_LIST 配到同名 Environment variables 的场景；
     # 推荐位置仍是 Settings -> Secrets and variables -> Actions -> Repository variables。
     environment: STOCK_LIST
+    # contents: write is only used to push the optional paper-ledger branch.
+    permissions:
+      contents: write
     # 添加超时限制，防止任务卡死
     timeout-minutes: ${{ fromJSON(vars.ANALYSIS_TIMEOUT_MINUTES || '30') }}
     
@@ -44,6 +47,14 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v5
       
+      - name: Checkout paper ledger branch (optional)
+        id: paper_ledger
+        continue-on-error: true
+        uses: actions/checkout@v5
+        with:
+          ref: paper-ledger
+          path: paper-ledger
+
       - name: 设置 Python 环境
         uses: actions/setup-python@v6
         with:
@@ -462,6 +473,11 @@ jobs:
           REALTIME_SOURCE_PRIORITY: ${{ vars.REALTIME_SOURCE_PRIORITY }}
           
         run: |
+          # Paper-trading ledger: only when the paper-ledger branch was checked out.
+          if [ -f paper-ledger/README.md ]; then
+            export PAPER_LEDGER_FILE="paper-ledger/signals.jsonl"
+            echo "📒 Paper ledger enabled: $PAPER_LEDGER_FILE"
+          fi
           # 解析自选股配置：
           # 1. Repository/Environment secrets 或 Repository variables（STOCK_LIST_CONFIG）
           # 2. 同名 Environment variables 注入的 runner 环境变量（STOCK_LIST）
@@ -572,6 +588,25 @@ jobs:
             python main.py $FORCE_RUN_ARG
           fi
       
+      - name: Push paper ledger
+        if: always() && steps.paper_ledger.outcome == 'success'
+        continue-on-error: true
+        working-directory: paper-ledger
+        run: |
+          if [ ! -f signals.jsonl ]; then
+            echo "No ledger file; nothing to push."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add signals.jsonl
+          if git diff --cached --quiet; then
+            echo "No new ledger lines."
+            exit 0
+          fi
+          git commit -m "ledger: run ${{ github.run_id }} ($(date -u +%Y-%m-%dT%H:%MZ))"
+          git push origin HEAD:paper-ledger || { git pull --rebase origin paper-ledger && git push origin HEAD:paper-ledger; }
+
       - name: 上传分析报告
         uses: actions/upload-artifact@v6
         if: always()

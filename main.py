@@ -1289,6 +1289,12 @@ def run_full_analysis(
             )
             return _return_with_auto_backtest(False)
 
+        # Paper-trading ledger (opt-in via PAPER_LEDGER_FILE; fail-open)
+        if results and not getattr(args, "dry_run", False):
+            from src.services.paper_ledger import append_ledger_records
+
+            append_ledger_records(results)
+
         # Issue #190: 合并推送（个股+大盘复盘）
         if merge_notification and (results or market_report) and not args.no_notify:
             parts = []
