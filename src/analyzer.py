@@ -1834,6 +1834,7 @@ class AnalysisResult:
     change_pct: Optional[float] = None     # 分析时的涨跌幅(%)
 
     # ========== 模型标记（Issue #528）==========
+    news_sources: Optional[Dict[str, Any]] = None  # 实际送入模型的新闻来源 {window_days, items:[{date,source,title,url}]}
     model_used: Optional[str] = None  # 分析使用的 LLM 模型（完整名，如 gemini/gemini-3.6-flash）
 
     # ========== 历史对比（Report Engine P0）==========
@@ -4997,6 +4998,7 @@ Below are the news search results for **{stock_name}({code})** from the last {ne
 3. 📊 **Earnings expectations**: annual report previews, earnings flash reports
 4. 🕒 **Time rules (mandatory)**:
    - Every item written to `risk_alerts` / `positive_catalysts` / `latest_news` must include a specific date (YYYY-MM-DD)
+   - The date in brackets is the article's publication date, not necessarily when the event happened. Write it as `[YYYY-MM-DD]`; if the article reports an earlier event (results, filings, rulings, launches), state that event's date in the text, e.g. `[2026-11-20] Q1 results (reported 2026-10-28) beat estimates`. Never present an old event as new
    - Ignore all news older than the last {news_window_days} days
    - Ignore all news whose publication date is unknown or cannot be determined
 
@@ -5012,6 +5014,7 @@ Below are the news search results for **{stock_name}({code})** from the last {ne
 3. 📊 **业绩预期**：年报预告、业绩快报
 4. 🕒 **时间规则（强制）**：
    - 输出到 `risk_alerts` / `positive_catalysts` / `latest_news` 的每一条都必须带具体日期（YYYY-MM-DD）
+   - 方括号中的日期为文章发布日期，不一定是事件发生日期；格式写为 `[YYYY-MM-DD]`。若文章报道的是更早发生的事件（财报、公告、判决、发布会等），须在正文中注明事件日期，例如 `[2026-11-20] 一季度业绩（2026-10-28 发布）超预期`，不得把旧事件写成新事件
    - 超出近{news_window_days}日窗口的新闻一律忽略
    - 时间未知、无法确定发布日期的新闻一律忽略
 

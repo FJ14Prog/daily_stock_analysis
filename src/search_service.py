@@ -231,6 +231,46 @@ def fetch_url_content(url: str, timeout: int = 5) -> str:
     return ""
 
 
+INTEL_DISPLAY_ORDER = ('latest_news', 'announcements', 'market_analysis', 'risk_check', 'earnings', 'industry')
+INTEL_RESULTS_PER_DIMENSION = 4
+
+
+def collect_news_sources(
+    intel_results: Optional[Dict[str, "SearchResponse"]],
+    *,
+    limit: int = 6,
+) -> List[Dict[str, Optional[str]]]:
+    """Sources actually shown to the model by ``format_intel_report``.
+
+    Same dimension order and per-dimension cap, deduplicated by URL, items
+    without URL skipped. Rendered by code so links are never model-generated.
+    """
+    sources: List[Dict[str, Optional[str]]] = []
+    seen: set = set()
+    if not intel_results:
+        return sources
+    for dim_name in INTEL_DISPLAY_ORDER:
+        response = intel_results.get(dim_name)
+        if not response or not getattr(response, "success", False):
+            continue
+        for item in (response.results or [])[:INTEL_RESULTS_PER_DIMENSION]:
+            url = str(item.url or "").strip()
+            if not url.startswith(("http://", "https://")) or url in seen:
+                continue
+            seen.add(url)
+            sources.append(
+                {
+                    "date": str(item.published_date)[:10] if item.published_date else None,
+                    "source": item.source or None,
+                    "title": (item.title or "").strip() or url,
+                    "url": url,
+                }
+            )
+            if len(sources) >= limit:
+                return sources
+    return sources
+
+
 @dataclass
 class SearchResult:
     """搜索结果数据类"""
@@ -4646,10 +4686,10 @@ class SearchService:
         Returns:
             格式化的情报报告文本
         """
-        lines = [f"【{stock_name} 情报搜索结果】"]
+        lines = [f"【{stock_name} 情报搜索结果】", "（方括号内为文章发布日期，不一定是事件发生日期 / dates in brackets are publication dates, not necessarily event dates）"]
         
         # 维度展示顺序
-        display_order = ['latest_news', 'announcements', 'market_analysis', 'risk_check', 'earnings', 'industry']
+        display_order = INTEL_DISPLAY_ORDER
 
         dim_labels = {
             'latest_news': '📰 最新消息',
@@ -4672,7 +4712,7 @@ class SearchService:
             lines.append(f"\n{dim_desc} (来源: {resp.provider}):")
             if resp.success and resp.results:
                 # 增加显示条数
-                for i, r in enumerate(resp.results[:4], 1):
+                for i, r in enumerate(resp.results[:INTEL_RESULTS_PER_DIMENSION], 1):
                     date_str = f" [{r.published_date}]" if r.published_date else ""
                     lines.append(f"  {i}. {r.title}{date_str}")
                     # 如果摘要太短，可能信息量不足
