@@ -43,6 +43,14 @@ _INCOME_NET_PROFIT_KEYS = (
     "Net Income",
     "NetIncome",
 )
+_INCOME_GROSS_PROFIT_KEYS = ("Gross Profit", "GrossProfit")
+# A reported quarter is announced within ~60 days of its end (10-Q deadline is
+# 40-45 days). An announcement further than this from the statement quarter
+# means a newer quarter has been published.
+_EARNINGS_ANNOUNCEMENT_MAX_LAG_DAYS = 75
+# Yahoo labels some fiscal quarters with the calendar month end (NVDA
+# 2026-07-26 -> 2026-07-31); allow that slack when matching quarters.
+_QUARTER_MATCH_TOLERANCE_DAYS = 10
 _CASHFLOW_OP_KEYS = (
     "Operating Cash Flow",
     "Cash Flow From Continuing Operating Activities",
@@ -91,6 +99,125 @@ def _latest_value(row: Optional[pd.Series]) -> Optional[float]:
         return None
 
 
+def _date_indexed(row: Optional[pd.Series]) -> Optional[pd.Series]:
+    """Return the row indexed by Timestamp, newest first; None when unusable."""
+    if row is None or row.empty:
+        return None
+    try:
+        dates = pd.to_datetime(row.index)
+    except (TypeError, ValueError):
+        return None
+    return pd.Series(row.values, index=dates).sort_index(ascending=False)
+
+
+def _newest_column_date(df: pd.DataFrame) -> Optional[pd.Timestamp]:
+    try:
+        dates = pd.to_datetime(list(df.columns), errors="coerce")
+    except (TypeError, ValueError):
+        return None
+    dates = [d for d in dates if pd.notna(d)]
+    return max(dates) if dates else None
+
+
+def _latest_populated_date(row: Optional[pd.Series]) -> Optional[pd.Timestamp]:
+    if row is None:
+        return None
+    for date, value in row.items():
+        if _safe_float(value) is not None:
+            return date
+    return None
+
+
+def _value_at(row: Optional[pd.Series], date: pd.Timestamp) -> Optional[float]:
+    if row is None or date not in row.index:
+        return None
+    value = row[date]
+    if isinstance(value, pd.Series):
+        value = value.iloc[0]
+    return _safe_float(value)
+
+
+def _value_near(row: Optional[pd.Series], date: pd.Timestamp) -> Optional[float]:
+    """Value for the same quarter (date within tolerance); None otherwise."""
+    if row is None:
+        return None
+    for candidate, value in row.items():
+        if abs((candidate - date).days) <= _QUARTER_MATCH_TOLERANCE_DAYS:
+            parsed = _safe_float(value)
+            if parsed is not None:
+                return parsed
+    return None
+
+
+def _latest_earnings_announcement(ticker: Any, errors: list) -> Optional[datetime]:
+    """Most recent past earnings announcement (with reported EPS), best effort."""
+    getter = getattr(ticker, "get_earnings_dates", None)
+    if getter is None:
+        return None
+    try:
+        frame = getter(limit=8)
+    except Exception as exc:
+        errors.append(f"earnings_dates:{type(exc).__name__}")
+        return None
+    if not isinstance(frame, pd.DataFrame) or frame.empty:
+        return None
+    now = pd.Timestamp.now(tz="UTC")
+    latest = None
+    for raw_date, row in frame.iterrows():
+        try:
+            ts = pd.Timestamp(raw_date)
+        except (TypeError, ValueError):
+            continue
+        ts_utc = ts.tz_convert("UTC") if ts.tzinfo else ts.tz_localize("UTC")
+        if ts_utc > now:
+            continue
+        reported = row.get("Reported EPS") if hasattr(row, "get") else None
+        if _safe_float(reported) is None:
+            continue
+        if latest is None or ts_utc > latest[0]:
+            latest = (ts_utc, ts)
+    return latest[1].to_pydatetime() if latest else None
+
+
+def _statement_freshness(
+    ticker: Any,
+    info: Dict[str, Any],
+    *,
+    report_date: Optional[str],
+    newest_statement_date: Optional[pd.Timestamp],
+    errors: list,
+) -> Dict[str, Any]:
+    """Flag quarterly statements that lag behind already-published results."""
+    announcement = _latest_earnings_announcement(ticker, errors)
+    freshness: Dict[str, Any] = {
+        "latest_earnings_date": announcement.isoformat() if announcement else None,
+        "stale": False,
+        "latest_quarter_end": None,
+    }
+    if not report_date:
+        return freshness
+    period = pd.Timestamp(report_date)
+    tolerance = pd.Timedelta(days=_QUARTER_MATCH_TOLERANCE_DAYS)
+
+    newer_quarter_ends = []
+    if newest_statement_date is not None and newest_statement_date > period + tolerance:
+        newer_quarter_ends.append(newest_statement_date)
+    most_recent_quarter = _epoch_to_date(info.get("mostRecentQuarter"))
+    if most_recent_quarter and pd.Timestamp(most_recent_quarter) > period + tolerance:
+        newer_quarter_ends.append(pd.Timestamp(most_recent_quarter))
+
+    announced_newer = False
+    if announcement is not None:
+        announced_day = pd.Timestamp(announcement.date())
+        announced_newer = (announced_day - period).days > _EARNINGS_ANNOUNCEMENT_MAX_LAG_DAYS
+
+    if newer_quarter_ends or announced_newer:
+        freshness["stale"] = True
+        if newer_quarter_ends:
+            freshness["latest_quarter_end"] = min(newer_quarter_ends).date().isoformat()
+    return freshness
+
+
 def _yoy_from_row(row: Optional[pd.Series]) -> Optional[float]:
     """Statement-derived YoY: requires the same quarter one year earlier.
 
@@ -108,6 +235,10 @@ def _yoy_from_row(row: Optional[pd.Series]) -> Optional[float]:
     except (TypeError, ValueError):
         return None
     series = pd.Series(row.values, index=dates).sort_index(ascending=False)
+    # Skip quarters whose value is not yet populated (new empty columns).
+    series = series[[_safe_float(v) is not None for v in series.values]]
+    if series.empty:
+        return None
     latest_date = series.index[0]
     latest = _safe_float(series.iloc[0])
     target = latest_date - pd.DateOffset(years=1)
@@ -207,51 +338,62 @@ class YfinanceFundamentalAdapter:
             result["source_chain"].append("growth:yfinance.info")
 
         # ---------------- financial_report ----------------
+        # All statement figures come from ONE quarter column: the most recent
+        # quarter whose revenue is populated. Yahoo often adds a new quarter
+        # column before its values are filled; using that column's date with
+        # TTM fallbacks produced rows mixing three periods. Cash flow is only
+        # taken when the cash-flow statement has the same quarter.
         report_date: Optional[str] = None
+        statement_basis: Optional[str] = None
         revenue_latest: Optional[float] = None
         net_profit_latest: Optional[float] = None
         operating_cash_flow_latest: Optional[float] = None
+        quarter_gross_margin: Optional[float] = None
         revenue_row = None
         net_profit_row = None
+        newest_statement_date: Optional[pd.Timestamp] = None
 
         try:
             income_df = ticker.quarterly_income_stmt
         except Exception as exc:
             result["errors"].append(f"quarterly_income_stmt:{type(exc).__name__}")
             income_df = None
-        if income_df is not None and not income_df.empty:
-            try:
-                if all(hasattr(col, "to_pydatetime") or isinstance(col, (datetime, pd.Timestamp)) for col in income_df.columns):
-                    income_df = income_df.reindex(columns=sorted(income_df.columns, reverse=True))
-                first_col = income_df.columns[0]
-                ts = pd.to_datetime(first_col, errors="coerce")
-                if pd.notna(ts):
-                    report_date = ts.date().isoformat()
-            except Exception:
-                pass
-            revenue_row = _pick_row(income_df, _INCOME_REVENUE_KEYS)
-            net_profit_row = _pick_row(income_df, _INCOME_NET_PROFIT_KEYS)
-            revenue_latest = _latest_value(revenue_row)
-            net_profit_latest = _latest_value(net_profit_row)
+        if isinstance(income_df, pd.DataFrame) and not income_df.empty:
+            revenue_row = _date_indexed(_pick_row(income_df, _INCOME_REVENUE_KEYS))
+            net_profit_row = _date_indexed(_pick_row(income_df, _INCOME_NET_PROFIT_KEYS))
+            gross_profit_row = _date_indexed(_pick_row(income_df, _INCOME_GROSS_PROFIT_KEYS))
+            newest_statement_date = _newest_column_date(income_df)
+            period = _latest_populated_date(revenue_row)
+            if period is not None:
+                report_date = period.date().isoformat()
+                statement_basis = "quarter"
+                revenue_latest = _value_at(revenue_row, period)
+                net_profit_latest = _value_at(net_profit_row, period)
+                gross_profit = _value_at(gross_profit_row, period)
+                if gross_profit is not None and revenue_latest:
+                    quarter_gross_margin = round(gross_profit / revenue_latest * 100.0, 4)
 
-        try:
-            cashflow_df = ticker.quarterly_cashflow
-        except Exception as exc:
-            result["errors"].append(f"quarterly_cashflow:{type(exc).__name__}")
-            cashflow_df = None
-        if cashflow_df is not None and not cashflow_df.empty:
-            operating_cash_flow_latest = _latest_value(_pick_row(cashflow_df, _CASHFLOW_OP_KEYS))
+                try:
+                    cashflow_df = ticker.quarterly_cashflow
+                except Exception as exc:
+                    result["errors"].append(f"quarterly_cashflow:{type(exc).__name__}")
+                    cashflow_df = None
+                if isinstance(cashflow_df, pd.DataFrame) and not cashflow_df.empty:
+                    cashflow_row = _date_indexed(_pick_row(cashflow_df, _CASHFLOW_OP_KEYS))
+                    operating_cash_flow_latest = _value_near(cashflow_row, period)
 
-        # Fallback to TTM aggregates from .info when quarterly statements are
-        # unavailable — still produces a non-empty row.
-        if revenue_latest is None:
+        # Fallback to TTM aggregates from .info only when no quarterly statement
+        # is usable; the whole row is then TTM, never mixed with a quarter.
+        if statement_basis is None:
             revenue_latest = _safe_float(info.get("totalRevenue"))
-        if operating_cash_flow_latest is None:
             operating_cash_flow_latest = _safe_float(info.get("operatingCashflow"))
-        if net_profit_latest is None and revenue_latest is not None:
-            margin = _safe_float(info.get("profitMargins"))
-            if margin is not None:
-                net_profit_latest = revenue_latest * margin
+            if revenue_latest is not None:
+                margin = _safe_float(info.get("profitMargins"))
+                if margin is not None:
+                    net_profit_latest = revenue_latest * margin
+            if revenue_latest is not None or operating_cash_flow_latest is not None:
+                statement_basis = "ttm"
+                report_date = _epoch_to_date(info.get("mostRecentQuarter"))
 
         # Statement-derived YoY (requires the same quarter a year earlier) is preferred
         # over .info ratios; otherwise keep the TTM growth values already set
@@ -263,8 +405,22 @@ class YfinanceFundamentalAdapter:
             growth_payload["revenue_yoy"] = statement_revenue_yoy
         if statement_net_profit_yoy is not None:
             growth_payload["net_profit_yoy"] = statement_net_profit_yoy
+        gross_margin_basis = None
+        if quarter_gross_margin is not None:
+            growth_payload["gross_margin"] = quarter_gross_margin
+            gross_margin_basis = "quarter"
+        elif growth_payload.get("gross_margin") is not None:
+            gross_margin_basis = "ttm"
         if any(v is not None for v in growth_payload.values()):
             result["growth"] = growth_payload
+
+        freshness = _statement_freshness(
+            ticker,
+            info,
+            report_date=report_date if statement_basis == "quarter" else None,
+            newest_statement_date=newest_statement_date,
+            errors=result["errors"],
+        )
 
         financial_report = {
             "report_date": report_date,
@@ -275,6 +431,10 @@ class YfinanceFundamentalAdapter:
             "currency": financial_currency,
         }
         if any(v is not None and v != "" for v in financial_report.values()):
+            financial_report["period_basis"] = statement_basis
+            financial_report["roe_basis"] = "ttm" if growth_payload.get("roe") is not None else None
+            financial_report["gross_margin_basis"] = gross_margin_basis
+            financial_report.update(freshness)
             result.setdefault("earnings", {})["financial_report"] = financial_report
             result["source_chain"].append("earnings.financial_report:yfinance")
 

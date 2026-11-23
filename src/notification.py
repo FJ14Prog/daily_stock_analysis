@@ -2375,8 +2375,11 @@ class NotificationService(
         report = blocks.get("financial_report") or {}
         growth = blocks.get("growth") or {}
         currency = report.get("currency") if isinstance(report.get("currency"), str) else None
+        report_date_text = self._format_text(report.get("report_date"))
+        if report.get("period_basis") == "ttm":
+            report_date_text = "TTM" if report_date_text == "N/A" else f"TTM ({report_date_text})"
         cells = {
-            "report_date": self._format_text(report.get("report_date")),
+            "report_date": report_date_text,
             "revenue": self._format_amount_cn(report.get("revenue"), currency, report_language),
             "net_profit": self._format_amount_cn(report.get("net_profit_parent"), currency, report_language),
             "operating_cash_flow": self._format_amount_cn(
@@ -2389,6 +2392,15 @@ class NotificationService(
         }
         if all(v == "N/A" for v in cells.values()):
             return
+        # Ratios from a different period than the statement row are labelled.
+        if report.get("roe_basis") == "ttm" and cells["roe"] != "N/A" and report.get("period_basis") != "ttm":
+            cells["roe"] = f"{cells['roe']} (TTM)"
+        if (
+            report.get("gross_margin_basis") == "ttm"
+            and cells["gross_margin"] != "N/A"
+            and report.get("period_basis") != "ttm"
+        ):
+            cells["gross_margin"] = f"{cells['gross_margin']} (TTM)"
 
         lines.extend([
             f"### 💼 {labels['financial_summary_heading']}",
@@ -2408,6 +2420,51 @@ class NotificationService(
             ),
             "",
         ])
+        stale_note = self._financial_staleness_note(report, report_language)
+        if stale_note:
+            lines.extend([stale_note, ""])
+
+    @staticmethod
+    def _financial_staleness_note(report: Dict[str, Any], report_language: Optional[str]) -> str:
+        """Warn when published results are newer than the statement row."""
+        if not report.get("stale"):
+            return ""
+        language = normalize_report_language(report_language or "zh")
+        quarter = str(report.get("report_date") or "").strip() or "N/A"
+        newer_quarter = str(report.get("latest_quarter_end") or "").strip()
+        announced = str(report.get("latest_earnings_date") or "").strip()[:10]
+        if language == "en":
+            parts = ["⚠️ Newer results are not yet reflected in these figures"]
+            details = []
+            if newer_quarter:
+                details.append(f"quarter ending {newer_quarter}")
+            if announced:
+                details.append(f"published {announced}")
+            if details:
+                parts.append(f" ({', '.join(details)})")
+            parts.append(f"; figures above are for the quarter ending {quarter}.")
+            return "".join(parts)
+        if language == "ko":
+            parts = ["⚠️ 최신 실적이 아직 반영되지 않았습니다"]
+            details = []
+            if newer_quarter:
+                details.append(f"{newer_quarter} 종료 분기")
+            if announced:
+                details.append(f"{announced} 발표")
+            if details:
+                parts.append(f" ({', '.join(details)})")
+            parts.append(f". 위 수치는 {quarter} 종료 분기 기준입니다.")
+            return "".join(parts)
+        parts = ["⚠️ 最新财报尚未反映在上述数据中"]
+        details = []
+        if newer_quarter:
+            details.append(f"报告期 {newer_quarter}")
+        if announced:
+            details.append(f"{announced} 已发布")
+        if details:
+            parts.append(f"（{'，'.join(details)}）")
+        parts.append(f"；上表数据对应报告期 {quarter}。")
+        return "".join(parts)
 
     def _append_shareholder_return(
         self,

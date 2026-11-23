@@ -4562,38 +4562,67 @@ Output strictly in the following JSON format. This is a complete Decision Dashbo
             ttm_cash = dividend_metrics.get("ttm_cash_dividend_per_share", "N/A")
             ttm_count = dividend_metrics.get("ttm_event_count", "N/A")
             report_date = financial_report.get("report_date", "N/A")
+            period_basis = financial_report.get("period_basis")
+            stale = bool(financial_report.get("stale"))
+            newer_quarter = financial_report.get("latest_quarter_end") or "N/A"
+            announced = str(financial_report.get("latest_earnings_date") or "N/A")[:10]
+            if english:
+                period_note = (
+                    "Trailing twelve months (TTM)"
+                    if period_basis == "ttm"
+                    else "Single quarter" if period_basis == "quarter" else "From structured financial report fields"
+                )
+                freshness_note = (
+                    f"\n> ⚠️ These statements are NOT the latest: newer results were published "
+                    f"(quarter ending {newer_quarter}, announced {announced}). Do not present these "
+                    f"figures as the latest quarter; say the newest results are not yet in the data.\n"
+                    if stale
+                    else ""
+                )
+            else:
+                period_note = (
+                    "近12个月（TTM）"
+                    if period_basis == "ttm"
+                    else "单季度" if period_basis == "quarter" else "来自结构化财报字段"
+                )
+                freshness_note = (
+                    f"\n> ⚠️ 上述财报并非最新：已有更新财报发布（报告期 {newer_quarter}，发布 {announced}），"
+                    f"不得将上述数据表述为最新一季，需说明最新财报尚未纳入数据。\n"
+                    if stale
+                    else ""
+                )
             if english:
                 prompt += f"""
 ### Financials and Dividends (value-investing view)
 | Indicator | Value | Note |
 |------|------|------|
-| Latest Report Period | {report_date} | From structured financial report fields |
+| Latest Report Period | {report_date} | {period_note} |
 | Revenue | {financial_report.get('revenue', 'N/A')} | |
 | Net Profit Attributable to Parent | {financial_report.get('net_profit_parent', 'N/A')} | |
 | Operating Cash Flow | {financial_report.get('operating_cash_flow', 'N/A')} | |
-| ROE | {financial_report.get('roe', 'N/A')} | |
+| ROE | {financial_report.get('roe', 'N/A')} | {"TTM" if financial_report.get("roe_basis") == "ttm" else ""} |
 | TTM Cash Dividend per Share | {ttm_cash} | Cash dividends only, pre-tax |
 | TTM Dividend Yield | {ttm_yield} | Formula: TTM cash dividend per share / current price × 100% |
 | TTM Dividend Events | {ttm_count} | |
 
 > If any field above is N/A or missing, state clearly "data unavailable, cannot judge"; never fabricate.
-"""
+{freshness_note}"""
             else:
                 prompt += f"""
 ### 财报与分红（价值投资口径）
 | 指标 | 数值 | 说明 |
 |------|------|------|
-| 最近报告期 | {report_date} | 来自结构化财报字段 |
+| 最近报告期 | {report_date} | {period_note} |
 | 营业收入 | {financial_report.get('revenue', 'N/A')} | |
 | 归母净利润 | {financial_report.get('net_profit_parent', 'N/A')} | |
 | 经营现金流 | {financial_report.get('operating_cash_flow', 'N/A')} | |
-| ROE | {financial_report.get('roe', 'N/A')} | |
+| ROE | {financial_report.get('roe', 'N/A')} | {"TTM" if financial_report.get("roe_basis") == "ttm" else ""} |
 | 近12个月每股现金分红 | {ttm_cash} | 仅现金分红、税前口径 |
 | TTM 股息率 | {ttm_yield} | 公式：近12个月每股现金分红 / 当前价格 × 100% |
 | TTM 分红事件数 | {ttm_count} | |
 
 > 若上述字段为 N/A 或缺失，请明确写“数据缺失，无法判断”，禁止编造。
-"""
+{freshness_note}"""
 
         capital_flow_block = (
             fundamental_context.get("capital_flow", {})
