@@ -59,6 +59,7 @@ from src.schemas.decision_action import (
 from src.schemas.decision_scale import extract_decision_guardrail_reason
 from src.utils.sniper_points import find_sniper_points
 from src.utils.data_processing import (
+    format_volume_metric,
     extract_realtime_detail_fields,
     normalize_model_used,
     parse_json_field,
@@ -1277,8 +1278,8 @@ class HistoryService:
             # 量能分析
             if vol_data:
                 report_lines.extend([
-                    f"**{labels['volume_label']}**: {labels['volume_ratio_label']} {vol_data.get('volume_ratio', 'N/A')} "
-                    f"({vol_data.get('volume_status', '')}) | {labels['turnover_rate_label']} {vol_data.get('turnover_rate', 'N/A')}%",
+                    f"**{labels['volume_label']}**: {labels['volume_ratio_label']} {format_volume_metric(vol_data.get('volume_ratio'))} "
+                    f"({vol_data.get('volume_status', '')}) | {labels['turnover_rate_label']} {format_volume_metric(vol_data.get('turnover_rate'), '%')}",
                     f"💡 *{vol_data.get('volume_meaning', '')}*",
                     "",
                 ])

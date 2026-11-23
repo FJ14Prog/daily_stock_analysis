@@ -470,3 +470,22 @@ def signal_attribution_has_content(signal_attr: Any) -> bool:
     if any(value != 0 for _, value in signal_attribution_weight_items(signal_attr)):
         return True
     return any(bool(signal_attr.get(key)) for key in SIGNAL_ATTRIBUTION_SIGNAL_KEYS)
+
+
+def format_volume_metric(value: Any, suffix: str = "") -> str:
+    """Display a volume ratio / turnover rate, or ``N/A`` when it is not real data.
+
+    The LLM copies missing inputs into ``volume_analysis`` as ``None``, ``"None"``
+    or ``0.0``; a traded stock never has a 0 volume ratio or 0% turnover, so
+    those are shown as unavailable instead of as a measurement.
+    """
+    if value is None or isinstance(value, bool):
+        return "N/A"
+    text = str(value).strip().rstrip("%").strip()
+    try:
+        number = float(text)
+    except (TypeError, ValueError):
+        return "N/A"
+    if number != number or number <= 0:  # NaN or non-positive
+        return "N/A"
+    return f"{text}{suffix}"
