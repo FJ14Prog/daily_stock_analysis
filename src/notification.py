@@ -2440,11 +2440,16 @@ class NotificationService(
         if days and labels.get("news_sources_note"):
             note = f" ({labels['news_sources_note'].format(days=days)})"
         lines = ["", f"**📎 {labels.get('news_sources_label', 'Sources')}**{note}:"]
+        undated_label = labels.get("news_sources_undated", "undated")
         for item in items:
             title = str(item.get("title") or item["url"]).replace("[", "(").replace("]", ")").strip()
-            meta = " · ".join(str(part) for part in (item.get("date"), item.get("source")) if part)
-            prefix = f"{meta} · " if meta else ""
-            lines.append(f"- {prefix}[{title}]({item['url']})")
+            # The domain goes inside the link text so mail clients do not
+            # auto-link it as a second, bare URL.
+            source = str(item.get("source") or "").strip()
+            link_text = f"{title} — {source}" if source and source.lower() not in title.lower() else title
+            url = str(item["url"]).replace(" ", "%20").replace("(", "%28").replace(")", "%29")
+            date_text = item.get("date") or undated_label
+            lines.append(f"- {date_text} · [{link_text}]({url})")
         return lines
 
     @staticmethod
