@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- [改进] “📎 信息来源 / Sources” 优先列出有发布日期的文章（按日期倒序），无日期的结果（多为行情/预测参考页）最多 2 条并标注 `undated`；来源域名放入链接文字，避免邮件客户端把裸域名自动识别为额外链接；URL 中的括号与空格转义，防止破坏 Markdown 链接。
+
 - [chore] GitHub Actions 每日分析工作流显示名改为英文 `Daily Stock Analysis`，步骤名与手动触发参数说明同步改为英文（文件名 `00-daily-analysis.yml`、定时与行为不变）；相关测试与文档入口同步更新。
 
 - [新功能] 个股情报区新增“📎 信息来源 / Sources”：列出实际送入模型的新闻（与提示词同序、每维度前 4 条、按 URL 去重、最多 6 条），显示发布日期、来源域名与可点击标题，由代码生成链接，不依赖模型输出；提示词与情报文本明确方括号日期为文章发布日期，并要求在正文注明更早事件的发生日期，不得把旧事件写成新事件。`AnalysisResult` 新增可选字段 `news_sources`。

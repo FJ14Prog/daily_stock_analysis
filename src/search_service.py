@@ -239,16 +239,21 @@ def collect_news_sources(
     intel_results: Optional[Dict[str, "SearchResponse"]],
     *,
     limit: int = 6,
+    max_undated: int = 2,
 ) -> List[Dict[str, Optional[str]]]:
     """Sources actually shown to the model by ``format_intel_report``.
 
-    Same dimension order and per-dimension cap, deduplicated by URL, items
-    without URL skipped. Rendered by code so links are never model-generated.
+    Same dimension order and per-dimension cap as the prompt, deduplicated by
+    URL, items without URL skipped. Dated articles come first (newest first);
+    undated results (usually quote/forecast reference pages) fill at most
+    ``max_undated`` slots and are flagged ``undated``. Rendered by code so
+    links are never model-generated.
     """
-    sources: List[Dict[str, Optional[str]]] = []
+    dated: List[Dict[str, Optional[str]]] = []
+    undated: List[Dict[str, Optional[str]]] = []
     seen: set = set()
     if not intel_results:
-        return sources
+        return []
     for dim_name in INTEL_DISPLAY_ORDER:
         response = intel_results.get(dim_name)
         if not response or not getattr(response, "success", False):
@@ -258,17 +263,30 @@ def collect_news_sources(
             if not url.startswith(("http://", "https://")) or url in seen:
                 continue
             seen.add(url)
-            sources.append(
-                {
-                    "date": str(item.published_date)[:10] if item.published_date else None,
-                    "source": item.source or None,
-                    "title": (item.title or "").strip() or url,
-                    "url": url,
-                }
-            )
-            if len(sources) >= limit:
-                return sources
-    return sources
+            date_text = _iso_date_prefix(item.published_date)
+            entry = {
+                "date": date_text,
+                "source": item.source or None,
+                "title": (item.title or "").strip() or url,
+                "url": url,
+                "undated": date_text is None,
+            }
+            (undated if date_text is None else dated).append(entry)
+    # Stable sort: newest first, prompt order kept within the same day.
+    dated.sort(key=lambda entry: entry["date"], reverse=True)
+    selected = dated[:limit]
+    room = min(max_undated, limit - len(selected))
+    if room > 0:
+        selected.extend(undated[:room])
+    return selected
+
+
+def _iso_date_prefix(value: Any) -> Optional[str]:
+    text = str(value or "").strip()[:10]
+    try:
+        return datetime.strptime(text, "%Y-%m-%d").date().isoformat()
+    except ValueError:
+        return None
 
 
 @dataclass
