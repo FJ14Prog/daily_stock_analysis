@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- [改进] 主模型返回 503/429（过载/限流）时，先按 `LLM_TRANSIENT_RETRY_DELAYS`（默认 30,60 秒）在同一主模型上非流式重试，再切换备用模型，减少短时高峰把分析交给较弱备用模型的情况；备用模型生成的个股结果在“数据局限”首行标注并将置信度降为低，`AnalysisResult.llm_fallback` 记录回退信息，纸面交易台账新增 `llm_fallback` 字段。
+
 - [改进] “📎 信息来源 / Sources” 优先列出有发布日期的文章（按日期倒序），无日期的结果（多为行情/预测参考页）最多 2 条并标注 `undated`；来源域名放入链接文字，避免邮件客户端把裸域名自动识别为额外链接；URL 中的括号与空格转义，防止破坏 Markdown 链接。
 
 - [chore] GitHub Actions 每日分析工作流显示名改为英文 `Daily Stock Analysis`，步骤名与手动触发参数说明同步改为英文（文件名 `00-daily-analysis.yml`、定时与行为不变）；相关测试与文档入口同步更新。

@@ -242,6 +242,28 @@ def parse_env_bool(value: Optional[str], default: bool = False) -> bool:
     return normalized not in _FALSEY_ENV_VALUES
 
 
+def parse_llm_transient_retry_delays(raw: Optional[str]) -> List[float]:
+    """Parse LLM_TRANSIENT_RETRY_DELAYS ("30,60"); unset → default, "0"/"off" → disabled."""
+    if raw is None or not str(raw).strip():
+        return [30.0, 60.0]
+    text = str(raw).strip().lower()
+    if text in {"0", "off", "false", "none", "no"}:
+        return []
+    delays: List[float] = []
+    for part in text.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            value = float(part)
+        except ValueError:
+            logger.warning("Invalid LLM_TRANSIENT_RETRY_DELAYS item %r ignored", part)
+            continue
+        if value >= 0:
+            delays.append(min(value, 300.0))
+    return delays[:5]
+
+
 def parse_env_int(
     value: Optional[str],
     default: int,
@@ -1024,6 +1046,8 @@ class Config:
     # LiteLLM unified model config (provider/model format, e.g. gemini/gemini-3.6-flash)
     litellm_model: str = ""  # Primary model; must include provider prefix when set explicitly
     litellm_fallback_models: List[str] = field(default_factory=list)  # Cross-model fallback list
+    # Waits (seconds) before re-trying the primary model on 503/429 overload, before any fallback model
+    llm_transient_retry_delays: List[float] = field(default_factory=lambda: [30.0, 60.0])
 
     # Unified temperature for all LLM calls (LLM_TEMPERATURE); legacy per-provider temps are fallback only
     llm_temperature: float = 0.7
@@ -1956,6 +1980,7 @@ class Config:
             opencode_cli_model=opencode_cli_model,
             litellm_model=litellm_model,
             litellm_fallback_models=litellm_fallback_models,
+            llm_transient_retry_delays=parse_llm_transient_retry_delays(os.getenv('LLM_TRANSIENT_RETRY_DELAYS')),
             llm_temperature=resolve_unified_llm_temperature(litellm_model),
             litellm_config_path=litellm_config_path,
             llm_models_source=llm_models_source,
