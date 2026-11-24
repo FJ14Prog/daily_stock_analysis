@@ -33,6 +33,7 @@ from data_provider.realtime_types import ChipDistribution
 from src.analyzer import (
     GeminiAnalyzer,
     AnalysisResult,
+    apply_llm_fallback_notice,
     fill_price_position_if_needed,
     normalize_chip_structure_availability,
     populate_decision_action_fields,
@@ -936,6 +937,11 @@ class StockAnalysisPipeline:
                         code,
                         action_plan_adjustments,
                     )
+                apply_llm_fallback_notice(
+                    result,
+                    report_language=getattr(result, "report_language", None)
+                    or getattr(self.config, "report_language", "zh"),
+                )
                 market_context_adjustments = apply_daily_market_context_guardrail(
                     result,
                     daily_market_context=enhanced_context.get("daily_market_context"),

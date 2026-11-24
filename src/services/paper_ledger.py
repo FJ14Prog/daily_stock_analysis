@@ -86,6 +86,7 @@ def build_ledger_record(
         "plan_violations": list(validation.get("violations") or []),
         "downgraded": bool(validation.get("downgraded", False)),
         "model": getattr(result, "model_used", None),
+        "llm_fallback": bool(getattr(result, "llm_fallback", None)),
         "language": getattr(result, "report_language", None),
     }
 
