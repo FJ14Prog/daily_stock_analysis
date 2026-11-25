@@ -124,3 +124,50 @@ def test_indices_block_keeps_provider_english_names():
     overview = MarketOverview(date="2026-11-17")
     overview.indices = [MarketIndex(code="^VIX", name="Volatility", current=25.46, change_pct=11.13)]
     assert "| Volatility |" in _analyzer("en")._build_indices_block(overview)
+
+
+# --------------------------------------------------------------------------- index points / suspect range
+
+
+def _real_2026_11_24():
+    from src.market_analyzer import MarketIndex, MarketOverview
+
+    overview = MarketOverview(date="2026-11-24")
+    overview.indices = [
+        MarketIndex(code="DJI", name="道琼斯工业指数", current=50018.70, change=423.39, change_pct=0.85,
+                    open=49494.60, high=50075.12, low=49294.49, prev_close=49595.31, amplitude=1.57),
+        MarketIndex(code="VIX", name="VIX恐慌指数", current=26.36, change=-0.26, change_pct=-0.98,
+                    open=26.52, high=32.38, low=25.98, prev_close=26.62, amplitude=24.04),
+    ]
+    return overview
+
+
+def test_prompt_gives_code_computed_index_points():
+    analyzer = _analyzer("en")
+    prompt = analyzer._build_review_prompt(_real_2026_11_24(), [])
+    assert "50018.70 (↑0.85%, +423.39 pts)" in prompt
+    assert "26.36 (↓0.98%, -0.26 pts) [intraday high/low look anomalous" in prompt
+
+
+def test_suspect_intraday_range_detection():
+    from src.market_analyzer import MarketIndex, suspect_intraday_range
+
+    dow, vix = _real_2026_11_24().indices
+    assert suspect_intraday_range(dow) == []
+    assert suspect_intraday_range(vix) == ["high"]
+    # 2026-11-23: Yahoo VIX low 15.39 with open 31.38 / close 26.62.
+    assert suspect_intraday_range(MarketIndex(code="VIX", name="VIX", current=26.62, open=31.38,
+                                              high=35.08, low=15.39)) == ["low"]
+    # A genuine large equity day (S&P 2026-11-20) stays clean.
+    assert suspect_intraday_range(MarketIndex(code="SPX", name="S&P", current=6910.39, open=7150.39,
+                                              high=7198.67, low=6882.66)) == []
+    assert suspect_intraday_range(MarketIndex(code="SPX", name="S&P", current=0.0)) == []
+
+
+def test_indices_block_flags_suspect_range():
+    block = _analyzer("en")._build_indices_block(_real_2026_11_24())
+    assert "| 32.38 ⚠️ | 25.98 | 24.04% ⚠️ |" in block
+    assert "| 50075.12 | 49294.49 | 1.57% |" in block
+    assert "> ⚠️ CBOE Volatility Index (VIX): intraday high 32.38 is far outside open 26.52 / last 26.36" in block
+    zh = _analyzer("zh")._build_indices_block(_real_2026_11_24())
+    assert "> ⚠️ VIX恐慌指数：日内最高 32.38 远离开盘 26.52 / 最新 26.36" in zh

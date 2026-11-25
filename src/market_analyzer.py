@@ -93,6 +93,44 @@ class MarketIndex:
         }
 
 
+# Intraday wick beyond max/min(open, last) above which Yahoo highs/lows are
+# treated as suspect (e.g. VIX low 15.39 on 2026-11-23 with open 31.38 / close
+# 26.62). Volatility indices move more, so they get a wider threshold.
+SUSPECT_WICK_PCT = 3.0
+SUSPECT_WICK_PCT_VOLATILITY = 15.0
+_VOLATILITY_INDEX_CODES = {"VIX", "^VIX", "VXN", "^VXN", "VHSI", "^VHSI"}
+
+
+def index_point_change(idx: "MarketIndex") -> Optional[float]:
+    """Point change: current - previous close when available, else provider change."""
+    try:
+        if idx.prev_close and idx.current:
+            return round(float(idx.current) - float(idx.prev_close), 2)
+        if idx.change:
+            return round(float(idx.change), 2)
+    except (TypeError, ValueError):
+        return None
+    return None
+
+
+def suspect_intraday_range(idx: "MarketIndex") -> List[str]:
+    """Return which intraday extremes ('high'/'low') look like data errors."""
+    try:
+        open_, last, high, low = (float(v or 0) for v in (idx.open, idx.current, idx.high, idx.low))
+    except (TypeError, ValueError):
+        return []
+    if min(open_, last, high, low) <= 0:
+        return []
+    code = str(idx.code or "").upper()
+    threshold = SUSPECT_WICK_PCT_VOLATILITY if code in _VOLATILITY_INDEX_CODES else SUSPECT_WICK_PCT
+    suspect = []
+    if (high - max(open_, last)) / max(open_, last) * 100 > threshold:
+        suspect.append("high")
+    if (min(open_, last) - low) / min(open_, last) * 100 > threshold:
+        suspect.append("low")
+    return suspect
+
+
 @dataclass
 class MarketOverview:
     """市场概览数据"""
@@ -1445,16 +1483,59 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
                 f"| 指数 | 最新 | 涨跌幅 | 开盘 | 最高 | 最低 | 振幅 | 成交额({self._get_turnover_unit_label() if self.region == 'tw' else '亿'}) |",
                 "|------|------|--------|------|------|------|------|-----------|",
             ]
+        suspect_notes = []
         for idx in overview.indices:
             arrow = self._get_index_change_arrow(idx.change_pct)
             amount_raw = idx.amount or 0.0
             amount_str = self._format_turnover_value(amount_raw)
+            suspect = suspect_intraday_range(idx)
+            flag = " ⚠️" if suspect else ""
+            high_str = self._format_optional_number(idx.high) + (flag if "high" in suspect else "")
+            low_str = self._format_optional_number(idx.low) + (flag if "low" in suspect else "")
             lines.append(
                 f"| {self._index_display_name(idx)} | {idx.current:.2f} | {arrow} {idx.change_pct:+.2f}% | "
-                f"{self._format_optional_number(idx.open)} | {self._format_optional_number(idx.high)} | "
-                f"{self._format_optional_number(idx.low)} | {self._format_optional_pct(idx.amplitude)} | {amount_str} |"
+                f"{self._format_optional_number(idx.open)} | {high_str} | "
+                f"{low_str} | {self._format_optional_pct(idx.amplitude)}{flag} | {amount_str} |"
             )
+            if suspect:
+                suspect_notes.append(self._suspect_range_footnote(idx, suspect))
+        if suspect_notes:
+            lines.append("")
+            lines.extend(suspect_notes)
         return "\n".join(lines)
+
+    def _index_points_suffix(self, idx: MarketIndex) -> str:
+        """Point change computed by code (current - previous close), for the prompt."""
+        points = index_point_change(idx)
+        if points is None:
+            return ""
+        unit = "pts" if self._get_review_language() == "en" else "点"
+        return f", {points:+.2f} {unit}"
+
+    def _suspect_range_prompt_note(self, idx: MarketIndex) -> str:
+        if not suspect_intraday_range(idx):
+            return ""
+        if self._get_review_language() == "en":
+            return " [intraday high/low look anomalous in the data source (possible error); do not cite them]"
+        return " [数据源日内高低点异常，不要引用]"
+
+    def _suspect_range_footnote(self, idx: MarketIndex, suspect: List[str]) -> str:
+        name = self._index_display_name(idx)
+        parts = []
+        if "high" in suspect:
+            parts.append(("high" if self._get_review_language() == "en" else "最高") + f" {idx.high:.2f}")
+        if "low" in suspect:
+            parts.append(("low" if self._get_review_language() == "en" else "最低") + f" {idx.low:.2f}")
+        detail = ", ".join(parts)
+        if self._get_review_language() == "en":
+            return (
+                f"> ⚠️ {name}: intraday {detail} is far outside open {idx.open:.2f} / last {idx.current:.2f}; "
+                "possibly a data-source error; verify before relying on the range or amplitude."
+            )
+        return (
+            f"> ⚠️ {name}：日内{detail} 远离开盘 {idx.open:.2f} / 最新 {idx.current:.2f}，"
+            "可能为数据源错误，引用日内区间与振幅前请核实。"
+        )
 
     def _build_sector_block(self, overview: MarketOverview) -> str:
         """Build industry and concept ranking blocks."""
@@ -1745,7 +1826,11 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
         indices_text = ""
         for idx in overview.indices:
             direction = "↑" if idx.change_pct > 0 else "↓" if idx.change_pct < 0 else "-"
-            indices_text += f"- {self._index_display_name(idx)}: {idx.current:.2f} ({direction}{abs(idx.change_pct):.2f}%)\n"
+            indices_text += (
+                f"- {self._index_display_name(idx)}: {idx.current:.2f} "
+                f"({direction}{abs(idx.change_pct):.2f}%{self._index_points_suffix(idx)})"
+                f"{self._suspect_range_prompt_note(idx)}\n"
+            )
         
         # 板块信息
         top_sectors_text = self._format_ranking_summary(overview.top_sectors)
@@ -2007,7 +2092,10 @@ Output the report content directly, no extra commentary.
         indices_text = ""
         for idx in overview.indices[:4]:
             marker = self._get_index_change_arrow(idx.change_pct)
-            indices_text += f"- **{self._index_display_name(idx)}**: {idx.current:.2f} ({marker} {idx.change_pct:+.2f}%)\n"
+            indices_text += (
+                f"- **{self._index_display_name(idx)}**: {idx.current:.2f} "
+                f"({marker} {idx.change_pct:+.2f}%{self._index_points_suffix(idx)})\n"
+            )
         
         # 板块信息
         separator = ", " if template_language == "en" else "、"
