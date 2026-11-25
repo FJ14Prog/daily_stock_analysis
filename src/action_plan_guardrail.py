@@ -206,6 +206,11 @@ def _check_buy_plan(check: ActionPlanCheck) -> None:
     if check.missing:
         check.violations.append("action_plan_incomplete")
 
+    # Note only: a secondary entry above the ideal one mixes a pullback entry
+    # with a breakout entry in a single plan (seen on JPM/XOM 2026-11-24).
+    if entry is not None and check.secondary_buy is not None and check.secondary_buy > entry:
+        check.violations.append("secondary_entry_above_ideal")
+
     entry_low, entry_high = _entry_range(entry, check.secondary_buy)
     candidate = DecisionSignalCandidate(
         action="buy",
@@ -391,6 +396,7 @@ _NOTE_TEMPLATES: Dict[str, Dict[str, str]] = {
         "hold_stop_loss_at_or_above_current_price": "Action plan check: stop-loss {stop} is at or above the current price {price}; review the risk line.",
         "position_size_with_non_buy_decision": "Action plan check: suggested position \"{position}\" applies only to existing holders; the decision is not a buy, so it does not justify opening a new position.",
         "risk_control_stop_mismatch": "Action plan check: risk control quotes {rc_prices} but the stop-loss is {stop}; the plan has two different stop levels.",
+        "secondary_entry_above_ideal": "Action plan check: secondary entry {secondary} is above the ideal entry {entry}; the plan mixes a pullback entry with a breakout entry.",
     },
     "zh": {
         "action_plan_incomplete": "作战计划校验：缺少数值点位：{missing}。",
@@ -406,6 +412,7 @@ _NOTE_TEMPLATES: Dict[str, Dict[str, str]] = {
         "hold_stop_loss_at_or_above_current_price": "作战计划校验：止损 {stop} 不低于现价 {price}，请复核风控线。",
         "position_size_with_non_buy_decision": "作战计划校验：建议仓位“{position}”仅适用于已持仓者；当前结论并非买入，不构成新开仓依据。",
         "risk_control_stop_mismatch": "作战计划校验：风控说明提到 {rc_prices}，但止损位为 {stop}，计划中存在两个不同的止损位。",
+        "secondary_entry_above_ideal": "作战计划校验：次级买入位 {secondary} 高于理想买入位 {entry}，计划混合了回踩买入与突破买入。",
     },
     "ko": {
         "action_plan_incomplete": "실행 계획 점검: 수치 가격대 누락: {missing}.",
@@ -421,6 +428,7 @@ _NOTE_TEMPLATES: Dict[str, Dict[str, str]] = {
         "hold_stop_loss_at_or_above_current_price": "실행 계획 점검: 손절가 {stop}이(가) 현재가 {price} 이상입니다. 리스크 라인을 재검토하세요.",
         "position_size_with_non_buy_decision": "실행 계획 점검: 제안 비중 \"{position}\"은(는) 기존 보유자에게만 해당하며, 매수 결론이 아니므로 신규 진입 근거가 아닙니다.",
         "risk_control_stop_mismatch": "실행 계획 점검: 리스크 관리 문구는 {rc_prices}을(를) 언급하지만 손절가는 {stop}입니다. 손절 기준이 두 개입니다.",
+        "secondary_entry_above_ideal": "실행 계획 점검: 보조 매수가 {secondary}이(가) 이상 매수가 {entry}보다 높습니다. 눌림목 매수와 돌파 매수가 섞여 있습니다.",
     },
 }
 
