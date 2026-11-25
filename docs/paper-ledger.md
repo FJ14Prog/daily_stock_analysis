@@ -72,6 +72,13 @@ Rules (defaults; override with repository variables
   Unfinished trades are `open` and excluded from statistics.
 - Costs: 10 bps per side. R multiple = net P/L ÷ (ideal_buy − stop_loss).
 - A split inside the window excludes the signal.
+- Incoherent plans are excluded from the trade statistics (`excluded_plan`,
+  reasons in the `plan_issues` CSV column): structural action-plan violations
+  recorded by the guardrail (stop not below every entry or the target, target
+  not above the entries, stop within 0.5 % of an entry), a stop not below a
+  lower secondary entry, or a risk (ideal − stop) under 0.5 % of the entry.
+  Such plans would produce meaningless or inflated R multiples; the summary
+  shows how many were excluded per group.
 - Summary per group: signals, closed, open, fill rate, win rate, expectancy
   (R), average net return, max drawdown of cumulative R, buy-and-hold of the
   same stock and SPY over the same window, exit breakdown; flagged when fewer

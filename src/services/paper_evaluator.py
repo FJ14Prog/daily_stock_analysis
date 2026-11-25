@@ -14,6 +14,10 @@ per-ticker daily bars. Rules (see docs/paper-ledger.md):
 - Costs: ``cost_bps`` per side on entry and exit.
 - A split inside the evaluated window excludes the signal (plan prices are
   pre-split, Yahoo history is split-adjusted).
+- Incoherent plans are excluded from trade statistics (status
+  ``excluded_plan``): structural action-plan violations recorded by the
+  guardrail, a stop not below the secondary entry, or a risk (ideal - stop)
+  below ``min_risk_pct`` of the entry, which would inflate R multiples.
 """
 
 from __future__ import annotations
@@ -46,6 +50,21 @@ class EvalConfig:
     max_hold_sessions: int = 20
     direction_sessions: int = 10
     cost_bps: float = 10.0
+    min_risk_pct: float = 0.5
+
+
+# Action-plan guardrail codes that make the plan structurally incoherent, so a
+# simulated trade (and its R multiple) would not be meaningful.
+SEVERE_PLAN_VIOLATIONS = frozenset({
+    "entry_range_invalid",
+    "stop_loss_not_below_entry_high",
+    "stop_loss_not_below_entry_low",
+    "stop_loss_not_below_target_price",
+    "stop_loss_too_close_to_entry",
+    "target_price_not_above_entry_high",
+    "target_price_not_above_entry_low",
+    "hold_stop_loss_not_below_target_price",
+})
 
 
 EVALUATION_FIELDS = (
@@ -53,6 +72,7 @@ EVALUATION_FIELDS = (
     "ideal_buy", "stop_loss", "take_profit", "planned_rr",
     "entry_date", "entry_price", "exit_date", "exit_price", "exit_reason", "hold_sessions",
     "return_pct", "r_multiple", "benchmark_return_pct", "spy_return_pct", "direction_correct",
+    "plan_issues",
 )
 
 
@@ -79,6 +99,24 @@ def classify(record: Mapping[str, Any]) -> Optional[str]:
     if decision == "hold" and _valid_plan(record):
         return GROUP_SHADOW
     return None
+
+
+def plan_quality_issues(record: Mapping[str, Any], config: EvalConfig = EvalConfig()) -> List[str]:
+    """Return the reasons a trade plan is too incoherent to simulate."""
+    issues = sorted(
+        code for code in (record.get("plan_violations") or []) if code in SEVERE_PLAN_VIOLATIONS
+    )
+    try:
+        ideal = float(record.get("ideal_buy"))
+        stop = float(record.get("stop_loss"))
+    except (TypeError, ValueError):
+        return issues
+    secondary = _optional_float(record.get("secondary_buy"))
+    if secondary is not None and secondary < ideal and stop >= secondary:
+        issues.append("stop_not_below_secondary_entry")
+    if ideal > 0 and (ideal - stop) / ideal * 100 < config.min_risk_pct:
+        issues.append("risk_below_min_pct")
+    return sorted(set(issues))
 
 
 # --------------------------------------------------------------------------- evaluation
@@ -117,6 +155,11 @@ def evaluate_signal(
     stop = float(record["stop_loss"])
     target = float(record["take_profit"])
     row["planned_rr"] = round((target - ideal) / (ideal - stop), 4)
+    issues = plan_quality_issues(record, config)
+    if issues:
+        row["status"] = "excluded_plan"
+        row["plan_issues"] = issues
+        return row
     return _evaluate_trade(row, forward, ideal, stop, target, config, split_days, session, benchmark_bars)
 
 
@@ -221,6 +264,7 @@ def summarize(rows: Sequence[Mapping[str, Any]]) -> Dict[str, Dict[str, Any]]:
             "signals": len(members),
             "closed": len(closed),
             "open": sum(1 for row in members if row.get("status") in ("open", "pending_entry")),
+            "excluded_plan": sum(1 for row in members if row.get("status") == "excluded_plan"),
             "small_sample": len(closed) < SMALL_SAMPLE,
         }
         if group == GROUP_DIRECTION:
@@ -287,6 +331,13 @@ def render_summary_markdown(summary: Mapping[str, Mapping[str, Any]], *, as_of: 
         exits = summary.get(group, {}).get("exits")
         if exits and any(exits.values()):
             lines.append(f"**{label} exits:** " + ", ".join(f"{k} {v}" for k, v in exits.items() if v))
+    excluded = {label: summary.get(group, {}).get("excluded_plan", 0) for group, label in labels.items()}
+    if any(excluded.values()):
+        lines.append(
+            "**Excluded (incoherent plan, e.g. stop not below every entry or risk below "
+            f"{config.min_risk_pct:g}% of entry):** "
+            + ", ".join(f"{label} {count}" for label, count in excluded.items() if count)
+        )
     if any(summary.get(g, {}).get("small_sample") for g in summary):
         lines += ["", f"⚠️ Fewer than {SMALL_SAMPLE} closed trades in at least one group: results are not statistically meaningful yet."]
     lines += ["", "For reference only, not investment advice."]
@@ -313,6 +364,14 @@ def _valid_plan(record: Mapping[str, Any]) -> bool:
     except (TypeError, ValueError):
         return False
     return all(math.isfinite(v) and v > 0 for v in (ideal, stop, target)) and stop < ideal < target
+
+
+def _optional_float(value: Any) -> Optional[float]:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) and number > 0 else None
 
 
 def _parse_date(value: Any) -> Optional[date]:
@@ -366,6 +425,8 @@ def _max_drawdown(closed: Sequence[Mapping[str, Any]]) -> Optional[float]:
 
 
 def _csv_value(value: Any) -> Any:
+    if isinstance(value, (list, tuple)):
+        return ";".join(str(item) for item in value)
     if isinstance(value, bool):
         return "true" if value else "false"
     return "" if value is None else value
