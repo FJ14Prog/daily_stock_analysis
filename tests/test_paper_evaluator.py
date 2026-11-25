@@ -12,6 +12,7 @@ from src.services.paper_evaluator import (
     EvalConfig,
     dedupe_ledger,
     evaluate_signal,
+    plan_quality_issues,
     render_summary_markdown,
     rows_to_csv,
     summarize,
@@ -198,3 +199,43 @@ def test_script_without_ledger_is_noop(tmp_path) -> None:
     import scripts.evaluate_paper_ledger as script
 
     assert script.main(["--ledger", str(tmp_path / "missing.jsonl")]) == 0
+
+
+# --------------------------------------------------------------------------- plan quality
+
+
+def test_incoherent_plans_are_excluded_before_simulation() -> None:
+    bars = _bars([(103, 104, 99.5, 102), (102, 111, 101, 110)] + [(110, 110, 109, 109)] * 3)
+    # Real 2026-11-24 NVDA shape: stop 148 above the secondary entry 145.
+    nvda = _signal("hold", ideal=149.5, stop=148.0, target=172.5, secondary_buy=145.0,
+                   plan_violations=["stop_loss_not_below_entry_low", "position_size_with_non_buy_decision"])
+    row = evaluate_signal(nvda, bars, config=ZERO_COST)
+    assert row["status"] == "excluded_plan"
+    assert row["plan_issues"] == ["stop_loss_not_below_entry_low", "stop_not_below_secondary_entry"]
+    assert row["planned_rr"] == pytest.approx(15.3333, abs=1e-4)
+    assert row["r_multiple"] is None
+
+
+def test_plan_quality_checks() -> None:
+    # Non-structural notes do not exclude.
+    ok = _signal(secondary_buy=97.0, plan_violations=["position_size_with_non_buy_decision", "risk_control_stop_mismatch"])
+    assert plan_quality_issues(ok) == []
+    # Computed checks work without guardrail codes (older ledger lines).
+    assert plan_quality_issues(_signal(secondary_buy=94.0)) == ["stop_not_below_secondary_entry"]
+    assert plan_quality_issues(_signal(stop=99.6)) == ["risk_below_min_pct"]
+    # A secondary entry above the ideal (breakout entry) is not checked against the stop.
+    assert plan_quality_issues(_signal(secondary_buy=103.0)) == []
+    assert plan_quality_issues(_signal(plan_violations=["stop_loss_too_close_to_entry"])) == ["stop_loss_too_close_to_entry"]
+
+
+def test_summary_counts_and_renders_exclusions() -> None:
+    bars = _bars([(103, 104, 99.5, 102), (102, 111, 101, 110)] + [(110, 110, 109, 109)] * 3)
+    good = evaluate_signal(_signal("hold"), bars, config=ZERO_COST)
+    bad = evaluate_signal(_signal("hold", secondary_buy=94.0), bars, config=ZERO_COST)
+    summary = summarize([good, bad])
+    shadow = summary["shadow"]
+    assert shadow["signals"] == 2 and shadow["closed"] == 1 and shadow["excluded_plan"] == 1
+    assert shadow["expectancy_r"] == 2.0
+    text = render_summary_markdown(summary, as_of="2026-11-28", config=ZERO_COST)
+    assert "Excluded (incoherent plan" in text and "Watch/Hold plans (shadow) 1" in text
+    assert "stop_not_below_secondary_entry" in rows_to_csv([bad])
