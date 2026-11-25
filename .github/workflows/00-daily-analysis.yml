@@ -1,9 +1,12 @@
 name: Daily Stock Analysis
 
 on:
-  # 定时触发 - 每天北京时间 18:00 (UTC 10:00)
+  # Two schedules: primary after the US close, backup a few hours later.
+  # The guard job skips the backup when the session is already in the paper
+  # ledger. Off-peak minutes reduce GitHub's scheduled-run delays and drops.
   schedule:
-    - cron: '30 21 * * 1-5'     # 周一到周五，UTC 10:00 = 北京时间 18:00
+    - cron: '7 22 * * 1-5'      # primary: Mon-Fri 22:07 UTC (after the US close)
+    - cron: '43 2 * * 2-6'      # backup: Tue-Sat 02:43 UTC (same US session)
   
   # 手动触发
   workflow_dispatch:
@@ -29,7 +32,44 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  guard:
+    # Scheduled runs only: skip when the latest completed US session is already
+    # recorded in the paper ledger (the other cron already did the work).
+    # Manual runs always proceed. Any failure here fails open (analysis runs).
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - name: Checkout code
+        if: github.event_name == 'schedule'
+        uses: actions/checkout@v5
+
+      - name: Checkout paper ledger branch (optional)
+        if: github.event_name == 'schedule'
+        continue-on-error: true
+        uses: actions/checkout@v5
+        with:
+          ref: paper-ledger
+          path: paper-ledger
+
+      - name: Set up Python
+        if: github.event_name == 'schedule'
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Check paper ledger for this session
+        id: check
+        if: github.event_name == 'schedule'
+        continue-on-error: true
+        run: |
+          pip install --quiet "exchange-calendars>=4.13.0"
+          python scripts/paper_ledger_guard.py --ledger paper-ledger/signals.jsonl
+
   analyze:
+    needs: guard
+    if: always() && needs.guard.outputs.skip != 'true'
     runs-on: ubuntu-latest
     # 兼容误将 STOCK_LIST 配到同名 Environment variables 的场景；
     # 推荐位置仍是 Settings -> Secrets and variables -> Actions -> Repository variables。
