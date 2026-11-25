@@ -331,7 +331,7 @@ class YfinanceFundamentalAdapter:
             "revenue_yoy": _ratio_to_pct(info.get("revenueGrowth")),
             "net_profit_yoy": _ratio_to_pct(info.get("earningsGrowth")),
             "roe": _ratio_to_pct(info.get("returnOnEquity")),
-            "gross_margin": _ratio_to_pct(info.get("grossMargins")),
+            "gross_margin": _gross_margin_pct(info),
         }
         if any(v is not None for v in growth_payload.values()):
             result["growth"] = growth_payload
@@ -544,3 +544,19 @@ class YfinanceFundamentalAdapter:
         )
         result["status"] = "partial" if has_content else "not_supported"
         return result
+
+
+def _gross_margin_pct(info: Dict[str, Any]) -> Optional[float]:
+    """TTM gross margin, or None when it is not meaningful.
+
+    Yahoo reports ``grossMargins = 0.0`` for banks (no cost-of-revenue line),
+    which rendered as a false "0.00%" margin. Banks, and an exact zero for any
+    company, are treated as unavailable.
+    """
+    industry = str(info.get("industry") or "").strip().lower()
+    if industry.startswith("banks"):
+        return None
+    value = _ratio_to_pct(info.get("grossMargins"))
+    if value is None or value == 0:
+        return None
+    return value

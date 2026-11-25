@@ -126,6 +126,19 @@ def test_no_statements_falls_back_to_full_ttm_row() -> None:
     assert report["stale"] is False
 
 
+def test_bank_zero_gross_margin_is_unavailable() -> None:
+    # Yahoo reports grossMargins = 0.0 for banks (JPM 2026-11-24 showed "0.00% (TTM)").
+    bank = dict(_NVDA_INFO, grossMargins=0.0, industry="Banks - Diversified")
+    growth = _bundle(_ticker(bank))["growth"]
+    assert growth["gross_margin"] is None
+    assert growth["roe"] is not None
+    # Banks are skipped even if Yahoo ever returns a non-zero value.
+    assert _bundle(_ticker(dict(bank, grossMargins=0.41)))["growth"]["gross_margin"] is None
+    # Exact zero is unavailable for any company; normal values are kept.
+    assert _bundle(_ticker(dict(_NVDA_INFO, grossMargins=0.0)))["growth"]["gross_margin"] is None
+    assert _bundle(_ticker(_NVDA_INFO))["growth"]["gross_margin"] == 74.92
+
+
 # --------------------------------------------------------------------------- rendering
 
 

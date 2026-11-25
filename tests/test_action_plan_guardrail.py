@@ -394,3 +394,43 @@ def test_real_case_aapl_as_buy_would_be_downgraded() -> None:
     assert "action_plan_buy_downgraded" in adjustments
     assert result.decision_type == "hold"
     assert result.operation_advice == "Watch"
+
+
+# --------------------------------------------------------------------------- entry order
+
+
+def test_real_case_jpm_2026_11_24_secondary_above_ideal_is_note_only() -> None:
+    result = _real_case(
+        price=317.10,
+        ideal="310.50 (Near key psychological support and analyst target low)",
+        secondary="316.30 (Reclaim of MA5 with high volume confirmation)",
+        stop="308.00 (Break below major technical support level)",
+        target="326.30 (MA10 short-term resistance level)",
+        position="2/10",
+        risk_control="Strictly enforce a stop-loss at $308.00.",
+    )
+
+    apply_action_plan_guardrail(result, report_language="en")
+
+    violations = result.dashboard["action_plan_validation"]["violations"]
+    assert "secondary_entry_above_ideal" in violations
+    assert result.decision_type == "hold" and result.confidence_level == "Medium"
+    assert any(
+        "secondary entry 316.30 is above the ideal entry 310.50" in note for note in _notes(result)
+    )
+
+
+def test_secondary_above_ideal_does_not_downgrade_buy() -> None:
+    # entry 99, breakout add 101, stop 95, target 110 -> otherwise coherent.
+    result = _result(secondary_buy="Secondary buy point: 101.00 (breakout)")
+
+    apply_action_plan_guardrail(result, report_language="en")
+
+    assert result.decision_type == "buy" and result.operation_advice == "Buy"
+    assert result.dashboard["action_plan_validation"]["violations"] == ["secondary_entry_above_ideal"]
+    assert len(_notes(result)) == 1
+
+
+def test_secondary_below_ideal_has_no_order_note() -> None:
+    check = evaluate_action_plan(_result())
+    assert "secondary_entry_above_ideal" not in check.violations
