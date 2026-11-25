@@ -135,3 +135,27 @@ def _number(value: Any) -> Optional[float]:
     except (TypeError, ValueError):
         return None
     return number if number == number else None
+
+
+def ledger_has_session(path: Path, session_date: str) -> bool:
+    """Return True when the ledger already holds a signal for ``session_date``.
+
+    Used by the scheduled-run guard so a backup cron does not analyse the same
+    session twice. Unreadable or malformed lines are ignored; a missing file
+    means "not recorded yet".
+    """
+    try:
+        with Path(path).open("r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(record, dict) and record.get("session_date") == session_date:
+                    return True
+    except OSError:
+        return False
+    return False

@@ -80,3 +80,18 @@ Rules (defaults; override with repository variables
 Limitations: daily bars cannot order intraday events (conservative
 assumptions above); shadow trades are hypothetical; results need months of
 signals before they mean anything.
+
+## Backup schedule guard
+
+`00-daily-analysis.yml` has two crons: a primary one after the US close
+(`7 22 * * 1-5`) and a backup a few hours later (`43 2 * * 2-6`). GitHub can
+delay or drop scheduled runs, so the backup covers a missed or failed primary.
+
+A light `guard` job runs first on scheduled triggers only:
+`scripts/paper_ledger_guard.py` resolves the latest completed US session with
+the trading calendar and checks whether `signals.jsonl` already holds it. If
+so, the `analyze` job is skipped (no LLM, search or email). Manual runs always
+proceed, and any guard failure fails open (the analysis runs).
+
+Limitation: if a run records the ledger but fails to send the email, the
+backup does not resend it.

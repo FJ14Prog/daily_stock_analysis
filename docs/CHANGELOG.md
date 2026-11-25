@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- [改进] 每日分析工作流改为主/备两个定时（`7 22 * * 1-5` 与 `43 2 * * 2-6`，避开整点/半点高峰）；新增 `guard` 作业：定时触发时若纸面交易台账已包含最近一个已收盘美股交易日（`scripts/paper_ledger_guard.py`，基于交易日历），则跳过备份运行，避免重复分析与额外 LLM/Tavily 消耗；手动触发不受影响，检查失败时默认继续分析。
+
 - [改进] 主模型返回 503/429（过载/限流）时，先按 `LLM_TRANSIENT_RETRY_DELAYS`（默认 30,60 秒）在同一主模型上非流式重试，再切换备用模型，减少短时高峰把分析交给较弱备用模型的情况；备用模型生成的个股结果在“数据局限”首行标注并将置信度降为低，`AnalysisResult.llm_fallback` 记录回退信息，纸面交易台账新增 `llm_fallback` 字段。
 
 - [改进] “📎 信息来源 / Sources” 优先列出有发布日期的文章（按日期倒序），无日期的结果（多为行情/预测参考页）最多 2 条并标注 `undated`；来源域名放入链接文字，避免邮件客户端把裸域名自动识别为额外链接；URL 中的括号与空格转义，防止破坏 Markdown 链接。
