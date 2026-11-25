@@ -3,13 +3,17 @@
 
 from __future__ import annotations
 
+import importlib.util
 import sys
 import threading
 from datetime import date
 from unittest.mock import MagicMock
 
 sys.modules.setdefault("litellm", MagicMock())
-sys.modules.setdefault("fxmacrodata_public", MagicMock())
+# Stub only when the client is not installed: a MagicMock left in sys.modules
+# breaks tests/test_fxmacrodata_tools.py when both land in the same CI shard.
+if importlib.util.find_spec("fxmacrodata_public") is None:
+    sys.modules.setdefault("fxmacrodata_public", MagicMock())
 
 from src.agent.agents.intel_agent import IntelAgent
 from src.agent.agents.technical_agent import TechnicalAgent
