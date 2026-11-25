@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- [修复] 大盘复盘：提示词中的指数行情附带由代码计算的涨跌点数（现价 − 昨收），避免模型自行推算出错误点数（如 2026-11-24 道指 ↑420.55 实为 ↑423.39）；日内最高/最低偏离开盘与最新价过远（普通指数 >3%，波动率指数 >15%）时在指数表标注 ⚠️ 并在表下提示可能为数据源错误，提示词同时要求不要引用该区间（如 Yahoo VIX 2026-11-23 最低 15.39、11-24 最高 32.38）。
+
 - [测试] `tests/test_agent_parallel_discovery.py` 仅在未安装 `fxmacrodata_public` 时才以 MagicMock 占位，避免与 `tests/test_fxmacrodata_tools.py` 分到同一 CI 分片时污染 `sys.modules` 导致后者失败。
 
 - [新功能] 美股财报跳空风险提示：yfinance 基本面新增 `next_earnings_date`；若财报在所分析交易日收盘后发布（`released`，价格与作战计划尚未反映市场反应）或将在 5 个交易日内发布（`upcoming`，按交易所日历计数，区分盘前/盘后），在“风险警报”首行提示跳空风险，记录 `dashboard.earnings_event`，买入结论的高置信度降为中（不改变结论）；提示词财报表新增下次财报日期；纸面交易台账新增 `earnings_event` 字段。
