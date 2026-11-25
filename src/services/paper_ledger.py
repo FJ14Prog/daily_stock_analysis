@@ -85,6 +85,7 @@ def build_ledger_record(
         "entry_distance_pct": entry_distance_pct,
         "plan_violations": list(validation.get("violations") or []),
         "downgraded": bool(validation.get("downgraded", False)),
+        "earnings_event": _earnings_event(dashboard),
         "model": getattr(result, "model_used", None),
         "llm_fallback": bool(getattr(result, "llm_fallback", None)),
         "language": getattr(result, "report_language", None),
@@ -125,6 +126,13 @@ def _session_date(code: str) -> Optional[str]:
         return resolve_report_date(get_market_for_stock(code)).isoformat()
     except Exception:
         return None
+
+
+def _earnings_event(dashboard: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    event = dashboard.get("earnings_event")
+    if not isinstance(event, dict):
+        return None
+    return {key: event.get(key) for key in ("kind", "date", "timing", "sessions")}
 
 
 def _number(value: Any) -> Optional[float]:

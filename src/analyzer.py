@@ -4722,6 +4722,7 @@ Output strictly in the following JSON format. This is a complete Decision Dashbo
 | TTM Cash Dividend per Share | {ttm_cash} | Cash dividends only, pre-tax |
 | TTM Dividend Yield | {ttm_yield} | Formula: TTM cash dividend per share / current price × 100% |
 | TTM Dividend Events | {ttm_count} | |
+| Next Scheduled Earnings | {str(financial_report.get('next_earnings_date') or 'N/A')[:16]} | Exchange local time; consider gap risk if close |
 
 > If any field above is N/A or missing, state clearly "data unavailable, cannot judge"; never fabricate.
 {freshness_note}"""
@@ -4738,6 +4739,7 @@ Output strictly in the following JSON format. This is a complete Decision Dashbo
 | 近12个月每股现金分红 | {ttm_cash} | 仅现金分红、税前口径 |
 | TTM 股息率 | {ttm_yield} | 公式：近12个月每股现金分红 / 当前价格 × 100% |
 | TTM 分红事件数 | {ttm_count} | |
+| 下次财报日期 | {str(financial_report.get('next_earnings_date') or 'N/A')[:16]} | 交易所当地时间；临近时需考虑跳空风险 |
 
 > 若上述字段为 N/A 或缺失，请明确写“数据缺失，无法判断”，禁止编造。
 {freshness_note}"""

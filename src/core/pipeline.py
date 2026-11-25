@@ -55,6 +55,7 @@ from src.analysis_context_pack_prompt import format_analysis_context_pack_prompt
 from src.analysis_context_pack_overview import render_analysis_context_pack_overview
 from src.market_phase_summary import MARKET_PHASE_SUMMARY_KEY, render_market_phase_summary
 from src.action_plan_guardrail import apply_action_plan_guardrail
+from src.earnings_event_guardrail import apply_earnings_event_notice
 from src.daily_market_context_guardrail import apply_daily_market_context_guardrail
 from src.agent.final_explanation import (
     PipelineActionAdjustment,
@@ -942,6 +943,14 @@ class StockAnalysisPipeline:
                     report_language=getattr(result, "report_language", None)
                     or getattr(self.config, "report_language", "zh"),
                 )
+                earnings_adjustments = apply_earnings_event_notice(
+                    result,
+                    fundamental_context,
+                    report_language=getattr(result, "report_language", None)
+                    or getattr(self.config, "report_language", "zh"),
+                )
+                if earnings_adjustments:
+                    logger.info("[earnings_event] Applied adjustments for %s: %s", code, earnings_adjustments)
                 market_context_adjustments = apply_daily_market_context_guardrail(
                     result,
                     daily_market_context=enhanced_context.get("daily_market_context"),
@@ -1824,6 +1833,14 @@ class StockAnalysisPipeline:
                         code,
                         action_plan_adjustments,
                     )
+                earnings_adjustments = apply_earnings_event_notice(
+                    result,
+                    fundamental_context,
+                    report_language=getattr(result, "report_language", None)
+                    or getattr(self.config, "report_language", "zh"),
+                )
+                if earnings_adjustments:
+                    logger.info("[earnings_event] Applied agent adjustments for %s: %s", code, earnings_adjustments)
                 self._refresh_decision_action_for_final_result(
                     result,
                     report_type=report_type.value,

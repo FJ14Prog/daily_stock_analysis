@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- [新功能] 美股财报跳空风险提示：yfinance 基本面新增 `next_earnings_date`；若财报在所分析交易日收盘后发布（`released`，价格与作战计划尚未反映市场反应）或将在 5 个交易日内发布（`upcoming`，按交易所日历计数，区分盘前/盘后），在“风险警报”首行提示跳空风险，记录 `dashboard.earnings_event`，买入结论的高置信度降为中（不改变结论）；提示词财报表新增下次财报日期；纸面交易台账新增 `earnings_event` 字段。
+
 - [改进] 行动计划校验新增提示 `secondary_entry_above_ideal`：次级买点高于理想买点时（同一计划混合回踩买入与突破买入，如 JPM/XOM）仅追加说明，不降级买入。
 
 - [修复] 美股基本面：Yahoo 对银行返回 `grossMargins = 0.0`，此前显示为虚假的“0.00% (TTM)”毛利率；银行行业及恰好为 0 的毛利率现视为不可用（N/A）。
