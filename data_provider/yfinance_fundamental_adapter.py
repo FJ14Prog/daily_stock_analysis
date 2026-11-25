@@ -149,34 +149,39 @@ def _value_near(row: Optional[pd.Series], date: pd.Timestamp) -> Optional[float]
     return None
 
 
-def _latest_earnings_announcement(ticker: Any, errors: list) -> Optional[datetime]:
-    """Most recent past earnings announcement (with reported EPS), best effort."""
+def _earnings_events(ticker: Any, errors: list) -> tuple:
+    """(latest past announcement with reported EPS, next scheduled one), best effort."""
     getter = getattr(ticker, "get_earnings_dates", None)
     if getter is None:
-        return None
+        return None, None
     try:
         frame = getter(limit=8)
     except Exception as exc:
         errors.append(f"earnings_dates:{type(exc).__name__}")
-        return None
+        return None, None
     if not isinstance(frame, pd.DataFrame) or frame.empty:
-        return None
+        return None, None
     now = pd.Timestamp.now(tz="UTC")
-    latest = None
+    latest = upcoming = None
     for raw_date, row in frame.iterrows():
         try:
             ts = pd.Timestamp(raw_date)
         except (TypeError, ValueError):
             continue
         ts_utc = ts.tz_convert("UTC") if ts.tzinfo else ts.tz_localize("UTC")
-        if ts_utc > now:
-            continue
         reported = row.get("Reported EPS") if hasattr(row, "get") else None
+        if ts_utc > now:
+            if _safe_float(reported) is None and (upcoming is None or ts_utc < upcoming[0]):
+                upcoming = (ts_utc, ts)
+            continue
         if _safe_float(reported) is None:
             continue
         if latest is None or ts_utc > latest[0]:
             latest = (ts_utc, ts)
-    return latest[1].to_pydatetime() if latest else None
+    return (
+        latest[1].to_pydatetime() if latest else None,
+        upcoming[1].to_pydatetime() if upcoming else None,
+    )
 
 
 def _statement_freshness(
@@ -188,9 +193,10 @@ def _statement_freshness(
     errors: list,
 ) -> Dict[str, Any]:
     """Flag quarterly statements that lag behind already-published results."""
-    announcement = _latest_earnings_announcement(ticker, errors)
+    announcement, upcoming = _earnings_events(ticker, errors)
     freshness: Dict[str, Any] = {
         "latest_earnings_date": announcement.isoformat() if announcement else None,
+        "next_earnings_date": upcoming.isoformat() if upcoming else None,
         "stale": False,
         "latest_quarter_end": None,
     }

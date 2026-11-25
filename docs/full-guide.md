@@ -489,7 +489,7 @@ daily_stock_analysis/
 >   - `fundamental_context.boards.data` = `sector_rankings`（板块涨跌榜，结构 `{top, bottom}`，HK/US 当前不提供）；
 >   - `fundamental_context.concept_boards.data` = `concept_rankings`（概念/题材涨跌榜，结构 `{top, bottom}`，当前仅 A 股提供；不可用时 fail-open 为空或缺失）；
 >   - `fundamental_context.earnings.data.financial_report` = 财报摘要（报告期、营收、归母净利润、经营现金流、ROE，及 `currency` 来源 `info.financialCurrency`，HK ADR 常见为 CNY）；
->   - yfinance 财报摘要同一行只取同一季度（最近营收已填充的季度；现金流量表无同季度则留空），无季度报表时整行为 TTM（`period_basis=ttm`）；`roe_basis` / `gross_margin_basis` 标明 TTM 或单季；银行或 Yahoo 返回恰为 0 的毛利率显示为 N/A；`stale=true` 表示已有更新财报发布但报表尚未更新（附 `latest_quarter_end`、`latest_earnings_date`），报告表下会提示；
+>   - yfinance 财报摘要同一行只取同一季度（最近营收已填充的季度；现金流量表无同季度则留空），无季度报表时整行为 TTM（`period_basis=ttm`）；`roe_basis` / `gross_margin_basis` 标明 TTM 或单季；银行或 Yahoo 返回恰为 0 的毛利率显示为 N/A；`next_earnings_date` 用于美股财报跳空风险提示（财报在所分析交易日收盘后发布，或 5 个交易日内将发布）；`stale=true` 表示已有更新财报发布但报表尚未更新（附 `latest_quarter_end`、`latest_earnings_date`），报告表下会提示；
 >   - `fundamental_context.earnings.data.dividend` = 分红指标（仅现金分红税前口径，含 `events`、`ttm_cash_dividend_per_share`、`ttm_dividend_yield_pct`、`currency`）。`currency` 独立读取自 `info.currency`，与 `financial_report.currency` 可能不同（HK ADR 财报 CNY、分红 HKD）；TTM yield 默认按 `ttm_cash / latest_price * 100`（同币种）即时重算，仅在 TTM cash 或 latest price 缺失时回退到 yfinance `trailingAnnualDividendYield` 或 `dividendYield`；
 >   - `get_stock_info.belong_boards` = 个股所属板块列表；
 >   - `get_stock_info.boards` 为兼容别名，值与 `belong_boards` 相同（未来仅在大版本考虑移除）；

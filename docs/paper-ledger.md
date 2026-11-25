@@ -45,6 +45,10 @@ cd - && git worktree remove ../dsa-paper-ledger
  "plan_violations": ["risk_reward_below_minimum"], "downgraded": false, "model": "gemini/gemini-3.6-flash"}
 ```
 
+`earnings_event` (null when none) records an earnings gap-risk warning, e.g.
+`{"kind": "upcoming", "date": "2027-01-28", "timing": "after_close", "sessions": 3}`;
+`kind` is `released` when results came out after the analysed session closed.
+
 ## Weekly evaluation
 
 `.github/workflows/paper-evaluation.yml` runs every Saturday (and on manual
