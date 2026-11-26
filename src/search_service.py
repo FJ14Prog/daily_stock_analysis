@@ -45,6 +45,8 @@ from src.data.stock_mapping import (
 )
 from src.services.run_diagnostics import record_provider_run, record_provider_run_started
 
+from src.utils.source_quality import low_quality_reason
+
 logger = logging.getLogger(__name__)
 
 _SEARCH_TIMEOUT_PROCESS_START_METHOD = "spawn"
@@ -260,7 +262,7 @@ def collect_news_sources(
             continue
         for item in (response.results or [])[:INTEL_RESULTS_PER_DIMENSION]:
             url = str(item.url or "").strip()
-            if not url.startswith(("http://", "https://")) or url in seen:
+            if not url.startswith(("http://", "https://")) or url in seen or low_quality_reason(url):
                 continue
             seen.add(url)
             date_text = _iso_date_prefix(item.published_date)
@@ -3764,7 +3766,11 @@ class SearchService:
         dropped_old = 0
         dropped_future = 0
 
+        dropped_low_quality = 0
         for item in response.results:
+            if low_quality_reason(item.url):
+                dropped_low_quality += 1
+                continue
             published = self._normalize_news_publish_date(item.published_date)
             if published is None:
                 if keep_unknown:
@@ -3809,9 +3815,9 @@ class SearchService:
             if len(filtered) >= max_results:
                 break
 
-        if dropped_unknown or dropped_old or dropped_future:
+        if dropped_unknown or dropped_old or dropped_future or dropped_low_quality:
             logger.info(
-                "[新闻过滤] %s: provider=%s, total=%s, kept=%s, drop_unknown=%s, drop_old=%s, drop_future=%s, window=[%s,%s]",
+                "[新闻过滤] %s: provider=%s, total=%s, kept=%s, drop_unknown=%s, drop_old=%s, drop_future=%s, drop_low_quality=%s, window=[%s,%s]",
                 log_scope,
                 response.provider,
                 len(response.results),
@@ -3819,6 +3825,7 @@ class SearchService:
                 dropped_unknown,
                 dropped_old,
                 dropped_future,
+                dropped_low_quality,
                 earliest.isoformat(),
                 latest.isoformat(),
             )
