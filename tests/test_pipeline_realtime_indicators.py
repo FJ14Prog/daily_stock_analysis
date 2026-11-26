@@ -607,7 +607,9 @@ class TestEnhanceContextRealtimeOverride(unittest.TestCase):
             )
         )
         quote_block = pack.blocks["quote"]
-        self.assertEqual(quote_block.status.value, "fallback")
+        # YFinance is the primary KR source: labelled "yfinance", not "fallback".
+        self.assertEqual(quote.source.value, "yfinance")
+        self.assertEqual(quote_block.status.value, "available")
         self.assertEqual(quote_block.items["quote_date"].value, "2026-11-13")
         self.assertNotIn("quote_stale", quote_block.warnings)
         self.assertNotIn("provider_timestamp", quote_block.metadata)
