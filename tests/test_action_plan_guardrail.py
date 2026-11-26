@@ -434,3 +434,58 @@ def test_secondary_above_ideal_does_not_downgrade_buy() -> None:
 def test_secondary_below_ideal_has_no_order_note() -> None:
     check = evaluate_action_plan(_result())
     assert "secondary_entry_above_ideal" not in check.violations
+
+
+# --------------------------------------------------------------------------- sell / reduce
+
+
+def _sell(**kwargs) -> AnalysisResult:
+    defaults = dict(
+        decision_type="sell",
+        operation_advice="Reduce",
+        confidence_level="Medium",
+        sentiment_score=30,
+        ideal_buy="No buy point; wait for a reclaim of MA20 at 105.00",
+        secondary_buy="N/A",
+        stop_loss="Stop-loss: 95.00 (exit the rest below support)",
+        take_profit="Reduce on a rebound to 104.00",
+        suggested_position="0/10",
+    )
+    defaults.update(kwargs)
+    return _result(**defaults)
+
+
+def test_coherent_sell_plan_has_no_notes() -> None:
+    result = _sell()
+    assert apply_action_plan_guardrail(result, report_language="en") == []
+    assert result.decision_type == "sell" and result.operation_advice == "Reduce"
+
+
+def test_sell_plan_with_buy_entry_is_note_only() -> None:
+    result = _sell(ideal_buy="Ideal buy point: 98.00 (near MA10)")
+    assert apply_action_plan_guardrail(result, report_language="en") == ["action_plan_notes_added"]
+    assert result.decision_type == "sell" and result.confidence_level == "Medium"
+    assert result.dashboard["action_plan_validation"]["violations"] == ["sell_plan_has_buy_entry"]
+    assert _notes(result) == [
+        "Action plan check: the decision is sell/reduce but the plan lists a buy entry 98.00; "
+        "do not open or add to a position."
+    ]
+
+
+def test_sell_plan_incoherent_stop_is_flagged() -> None:
+    # Stop above the price and above the rebound target; risk control quotes another level.
+    result = _sell(stop_loss="Stop-loss: 106.00", take_profit="104.00")
+    result.dashboard["battle_plan"]["position_strategy"]["risk_control"] = "Exit below 97.00."
+    apply_action_plan_guardrail(result, report_language="zh")
+    assert result.dashboard["action_plan_validation"]["violations"] == [
+        "hold_stop_loss_not_below_target_price",
+        "sell_stop_at_or_above_current_price",
+        "risk_control_stop_mismatch",
+    ]
+    assert "作战计划校验：止损 106.00 不低于现价 100.00；卖出/减仓结论下剩余仓位应已离场。" in _notes(result)
+
+
+def test_sell_position_size_note_still_applies() -> None:
+    result = _sell(suggested_position="3/10")
+    apply_action_plan_guardrail(result, report_language="en")
+    assert result.dashboard["action_plan_validation"]["violations"] == ["position_size_with_non_buy_decision"]
