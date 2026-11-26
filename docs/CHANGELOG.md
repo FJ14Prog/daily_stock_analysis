@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- [改进] 新闻来源质量与大盘复盘可追溯性：搜索结果统一剔除低质量来源（社交媒体、非标准端口 URL 如 `benzinga.com:8443`、文件服务器附件 PDF；可用 `NEWS_SOURCE_BLOCKLIST` 追加域名），个股提示词与“📎 Sources”同步生效；大盘复盘提示词中的新闻编号为 [N#] 并要求“消息催化”只描述新闻列表中的事件并标注 [N#]，不得凭记忆补充；复盘正文在“消息催化”后附由代码生成的 “📎 Sources” 列表（发布日期、标题与域名）。
+
 - [修复] 大盘复盘：提示词中的指数行情附带由代码计算的涨跌点数（现价 − 昨收），避免模型自行推算出错误点数（如 2026-11-24 道指 ↑420.55 实为 ↑423.39）；日内最高/最低偏离开盘与最新价过远（普通指数 >3%，波动率指数 >15%）时在指数表标注 ⚠️ 并在表下提示可能为数据源错误，提示词同时要求不要引用该区间（如 Yahoo VIX 2026-11-23 最低 15.39、11-24 最高 32.38）。
 
 - [测试] `tests/test_agent_parallel_discovery.py` 仅在未安装 `fxmacrodata_public` 时才以 MagicMock 占位，避免与 `tests/test_fxmacrodata_tools.py` 分到同一 CI 分片时污染 `sys.modules` 导致后者失败。

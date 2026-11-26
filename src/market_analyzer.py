@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from inspect import getattr_static
 from typing import Optional, Dict, Any, List
+from urllib.parse import urlparse
 
 import pandas as pd
 
@@ -50,6 +51,7 @@ _ENGLISH_SECTION_PATTERNS = {
     "market_summary": r"###\s*(?:1\.\s*)?Market Summary",
     "index_commentary": r"###\s*(?:2\.\s*)?(?:Index Commentary|Major Indices)",
     "sector_highlights": r"###\s*(?:4\.\s*)?(?:Sector Highlights|Sector/Theme Highlights)",
+    "news_sources_anchor": r"###\s*(?:\d+\.\s*)?News Catalysts",
 }
 
 _CHINESE_SECTION_PATTERNS = {
@@ -58,6 +60,7 @@ _CHINESE_SECTION_PATTERNS = {
     "sector_highlights": r"###\s*三、(?:板块主线|热点解读|板块表现)",
     "funds_sentiment": r"###\s*四、(?:资金与情绪|资金动向)",
     "news_catalysts": r"###\s*五、(?:消息催化|后市展望)",
+    "news_sources_anchor": r"###\s*[一二三四五六七八]、消息催化",
 }
 
 
@@ -1270,7 +1273,36 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
                 )
                 review = f"{review.rstrip()}\n\n{fallback_heading}\n{sector_block}\n"
 
+        sources_block = self._build_news_sources_block(news)
+        if sources_block:
+            anchored = self._insert_after_section(review, patterns["news_sources_anchor"], sources_block)
+            review = anchored if anchored != review else f"{review.rstrip()}\n\n{sources_block}\n"
+
         return review
+
+    def _build_news_sources_block(self, news: Optional[List]) -> str:
+        """Code-rendered list of the news items given to the model ([N#] = prompt order)."""
+        lines = []
+        for i, item in enumerate((news or [])[:6], 1):
+            url = self._get_news_field(item, "url")
+            if not url.startswith(("http://", "https://")):
+                continue
+            title = self._compact_news_text(self._get_news_field(item, "title"), limit=110) or url
+            domain = (urlparse(url).hostname or "").removeprefix("www.")
+            label = self._escape_markdown_link_label(f"{title} — {domain}" if domain else title)
+            safe_url = url.replace(" ", "%20").replace("(", "%28").replace(")", "%29")
+            date_text = self._get_news_field(item, "published_date")[:10] or (
+                "undated" if self._get_review_language() == "en" else "无日期"
+            )
+            lines.append(f"- [N{i}] {date_text} · [{label}]({safe_url})")
+        if not lines:
+            return ""
+        title = (
+            "**📎 Sources** (news given to the model; [N#] as cited above; dates are publication dates):"
+            if self._get_review_language() == "en"
+            else "**📎 信息来源**（提供给模型的新闻，正文以 [N#] 引用；日期为发布日期）："
+        )
+        return "\n".join([title, *lines])
 
     @staticmethod
     def _insert_after_section(text: str, heading_pattern: str, block: str) -> str:
@@ -1850,7 +1882,7 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
             meta_parts = [part for part in (source, published_date) if part]
             meta = f" ({' / '.join(meta_parts)})" if meta_parts else ""
             url_line = f"\n   URL: {url}" if url else ""
-            news_text += f"{i}. {title}{meta}\n   {snippet or '-'}{url_line}\n"
+            news_text += f"[N{i}] {title}{meta}\n   {snippet or '-'}{url_line}\n"
         
         # 按 region 组装市场概况与板块区块（美股/港股/日韩无涨跌家数、板块数据）
         stats_block = ""
@@ -1959,7 +1991,7 @@ Concept lagging: {bottom_concepts_text if bottom_concepts_text else "N/A"}"""
 - No code blocks
 - Use emoji sparingly in headings (at most one per heading)
 - The entire fixed shell, headings, guidance, and conclusion must be in {shell_language_label}
-{data_boundary_requirement}
+{data_boundary_requirement}- News grounding: describe news events ONLY if they appear in [Market News] and cite the item as [N#] at the end of the sentence. Do not add events, figures, rulings or company news from memory. If no item explains a move, say that no verified catalyst was found.
 
 ---
 
@@ -2013,7 +2045,7 @@ Output the report content directly, no extra commentary.
 - emoji 仅在标题处少量使用（每个标题最多1个）
 - {workflow_hint}
 - 不要重复列出已由系统注入的表格数据；正文负责解释表格背后的含义
-{data_boundary_requirement}
+{data_boundary_requirement}- 新闻须有据：只可描述【市场新闻】中出现的事件，并在句末标注 [N#]；不得凭记忆补充事件、数字、判决或公司新闻；若没有新闻能解释行情，请说明未找到可验证的催化。
 
 ---
 

@@ -117,3 +117,95 @@ def test_prompt_contains_publication_date_rule() -> None:
     assert "is the article's publication date, not necessarily when the event happened" in en
     assert "Never present an old event as new" in en
     assert "方括号中的日期为文章发布日期" in zh
+
+
+# --------------------------------------------------------------------------- low-quality sources
+
+
+def test_low_quality_reason(monkeypatch) -> None:
+    from src.utils.source_quality import low_quality_reason
+
+    assert low_quality_reason("https://www.facebook.com/cnninternational/posts/1") == "blocked_domain"
+    assert low_quality_reason("https://m.facebook.com/x") == "blocked_domain"
+    assert low_quality_reason("https://www.benzinga.com:8443/quote/XOM/analyst-ratings") == "non_standard_port"
+    assert (
+        low_quality_reason("https://www.jdsupra.com/post/fileServer.aspx?fName=74247f44-3d6d.pdf")
+        == "pdf_attachment"
+    )
+    # Exchange filings served as direct PDFs stay.
+    assert low_quality_reason("https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0613/example.pdf") is None
+    assert low_quality_reason("https://www.benzinga.com/news/1") is None
+    assert low_quality_reason("https://finance.yahoo.com/quote/XOM") is None
+    monkeypatch.setenv("NEWS_SOURCE_BLOCKLIST", "settlementinsight.com, .spam.net")
+    assert low_quality_reason("https://settlementinsight.com/apple-charger-lawsuit") == "blocked_domain"
+    assert low_quality_reason("https://a.spam.net/x") == "blocked_domain"
+
+
+def test_low_quality_sources_are_filtered_from_news_and_sources() -> None:
+    from datetime import date
+
+    today = date.today().isoformat()
+    bad = [
+        _item(1, url="https://www.facebook.com/oilnowgy/posts/1", date=today),
+        _item(2, url="https://www.benzinga.com:8443/quote/XOM/analyst-ratings", date=today),
+        _item(3, url="https://www.jdsupra.com/post/fileServer.aspx?fName=a.pdf", date=today),
+    ]
+    good = _item(4, url="https://www.reuters.com/markets/xom", date=today)
+    response = SearchResponse(query="q", results=[*bad, good], provider="Tavily")
+    service = SearchService.__new__(SearchService)
+    filtered = service._filter_news_response(response, search_days=3, max_results=6, log_scope="test", keep_unknown=True)
+    assert [item.url for item in filtered.results] == ["https://www.reuters.com/markets/xom"]
+    sources = collect_news_sources({"latest_news": response})
+    assert [entry["url"] for entry in sources] == ["https://www.reuters.com/markets/xom"]
+
+
+# --------------------------------------------------------------------------- market review sources
+
+
+def _market_analyzer(language: str):
+    from unittest.mock import patch
+
+    from src.config import Config
+    from src.market_analyzer import MarketAnalyzer
+
+    with patch("src.market_analyzer.DataFetcherManager"):
+        analyzer = MarketAnalyzer(region="us", config=Config())
+    analyzer._get_output_language = lambda: language
+    return analyzer
+
+
+def _market_news():
+    return [
+        _item(1, url="https://www.reuters.com/markets/us/stocks-1", date="2026-11-25"),
+        _item(2, url="", date="2026-11-25"),
+        _item(3, url="https://apnews.com/article/stocks (live)", date=""),
+    ]
+
+
+def test_market_prompt_numbers_news_and_requires_grounding() -> None:
+    from src.market_analyzer import MarketOverview
+
+    prompt = _market_analyzer("en")._build_review_prompt(MarketOverview(date="2026-11-25"), _market_news())
+    assert "[N1] Headline 1 [x]" in prompt and "[N3] Headline 3 [x]" in prompt
+    assert "News grounding: describe news events ONLY if they appear in [Market News]" in prompt
+    zh = _market_analyzer("zh")._build_review_prompt(MarketOverview(date="2026-11-25"), _market_news())
+    assert "新闻须有据" in zh
+
+
+def test_market_review_sources_block_after_news_catalysts() -> None:
+    from src.market_analyzer import MarketOverview
+
+    review = (
+        "## 2026-11-25 US Market Recap\n\n### 1. Market Summary\nx\n\n"
+        "### 3. News Catalysts\nDip buying [N1].\n\n### 4. Outlook\ny\n"
+    )
+    out = _market_analyzer("en")._inject_data_into_review(review, MarketOverview(date="2026-11-25"), _market_news())
+    catalysts, outlook = out.split("### 4. Outlook")
+    assert "**📎 Sources** (news given to the model" in catalysts
+    assert "- [N1] 2026-11-25 · [Headline 1 \\[x\\] — reuters.com](https://www.reuters.com/markets/us/stocks-1)" in catalysts
+    assert "[N2]" not in catalysts  # no URL -> not listed
+    assert "- [N3] undated · [Headline 3 \\[x\\] — apnews.com](https://apnews.com/article/stocks%20%28live%29)" in catalysts
+    # Without the heading the block is appended at the end; without news nothing is added.
+    plain = _market_analyzer("en")._inject_data_into_review("## Recap\ntext\n", MarketOverview(date="2026-11-25"), _market_news())
+    assert plain.rstrip().endswith("(https://apnews.com/article/stocks%20%28live%29)")
+    assert "Sources" not in _market_analyzer("en")._inject_data_into_review(review, MarketOverview(date="2026-11-25"), [])

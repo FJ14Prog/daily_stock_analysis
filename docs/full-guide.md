@@ -396,6 +396,7 @@ daily_stock_analysis/
 | `SEARXNG_TIMEOUT_SECONDS` | 自建 SearXNG 单次搜索超时（秒，默认 `10`，最小 `1`）；实例较慢（如聚合引擎较多的 NAS 部署）时可调大，公共实例超时不受影响。GitHub Actions 需显式映射该变量 | 可选 |
 | `NEWS_STRATEGY_PROFILE` | 新闻策略窗口档位：`ultra_short`(1天)/`short`(3天)/`medium`(7天)/`long`(30天)；实际窗口取与 `NEWS_MAX_AGE_DAYS` 的最小值 | 默认 `short` |
 | `NEWS_MAX_AGE_DAYS` | 新闻最大时效（天），搜索时限制结果在近期内 | 默认 `3` |
+| `NEWS_SOURCE_BLOCKLIST` | 额外屏蔽的新闻来源域名（逗号分隔，含子域名）；内置已屏蔽社交媒体（facebook/x/reddit 等）、非标准端口 URL 与文件服务器附件 PDF | 默认空 |
 | `BIAS_THRESHOLD` | 乖离率阈值（%），超过提示不追高；强势趋势股自动放宽到 1.5 倍 | 默认 `5.0` |
 
 > Anspire 保留为可选服务。搜索顺序为 Bocha → Tavily → Brave → SerpAPI → Anspire → MiniMax → SearXNG，按已配置且可用的渠道依次尝试；仅配置 Anspire 时仍可直接使用。
