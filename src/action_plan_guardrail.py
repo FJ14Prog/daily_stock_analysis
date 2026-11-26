@@ -128,7 +128,10 @@ def evaluate_action_plan(result: Any, *, current_price: Optional[float] = None) 
             _check_buy_plan(check)
         _check_hold_plan(check)
 
-    if decision_type in ("buy", "hold"):
+    elif decision_type == "sell":
+        _check_sell_plan(check, _raw_sniper_text(result, "ideal_buy"))
+
+    if decision_type in ("buy", "hold", "sell"):
         _check_risk_control_stop(check, _risk_control_text(result))
 
     if decision_type != "buy" and _position_allocation(check.suggested_position):
@@ -289,6 +292,41 @@ def _check_hold_plan(check: ActionPlanCheck) -> None:
         check.violations.append("hold_stop_loss_at_or_above_current_price")
 
 
+# Buy-level text that only says there is no entry ("No buy point; wait for a
+# reclaim of 150") must not count as a buy entry on a sell/reduce card.
+_NO_BUY_MARKERS = (
+    "no buy", "not a buy", "no entry", "no new", "not applicable", "n/a", "do not buy",
+    "avoid buying", "wait for", "wait until", "none",
+    "暂无", "无买点", "不建议", "不买", "不适用", "等待", "观望",
+    "매수 없음", "매수하지", "해당 없음", "대기",
+)
+
+
+def _check_sell_plan(check: ActionPlanCheck, ideal_text: Optional[str]) -> None:
+    """Sell/reduce cards (notes only): no buy entry, coherent stop and target."""
+
+    text = (ideal_text or "").strip().lower()
+    if check.ideal_buy is not None and not any(marker in text for marker in _NO_BUY_MARKERS):
+        check.violations.append("sell_plan_has_buy_entry")
+    stop = check.stop_loss
+    target = check.take_profit
+    if stop is not None and target is not None and stop >= target:
+        check.violations.append("hold_stop_loss_not_below_target_price")
+    if stop is not None and check.current_price is not None and stop >= check.current_price:
+        check.violations.append("sell_stop_at_or_above_current_price")
+
+
+def _raw_sniper_text(result: Any, key: str) -> Optional[str]:
+    getter = getattr(result, "get_sniper_points", None)
+    points = getter() if callable(getter) else None
+    if not isinstance(points, dict):
+        dashboard = getattr(result, "dashboard", None)
+        battle_plan = dashboard.get("battle_plan") if isinstance(dashboard, dict) else None
+        points = battle_plan.get("sniper_points") if isinstance(battle_plan, dict) else None
+    value = points.get(key) if isinstance(points, dict) else None
+    return None if value is None else str(value)
+
+
 # --------------------------------------------------------------------------- effects
 
 
@@ -397,6 +435,8 @@ _NOTE_TEMPLATES: Dict[str, Dict[str, str]] = {
         "position_size_with_non_buy_decision": "Action plan check: suggested position \"{position}\" applies only to existing holders; the decision is not a buy, so it does not justify opening a new position.",
         "risk_control_stop_mismatch": "Action plan check: risk control quotes {rc_prices} but the stop-loss is {stop}; the plan has two different stop levels.",
         "secondary_entry_above_ideal": "Action plan check: secondary entry {secondary} is above the ideal entry {entry}; the plan mixes a pullback entry with a breakout entry.",
+        "sell_plan_has_buy_entry": "Action plan check: the decision is sell/reduce but the plan lists a buy entry {entry}; do not open or add to a position.",
+        "sell_stop_at_or_above_current_price": "Action plan check: stop-loss {stop} is at or above the current price {price}; on a sell/reduce decision the remaining position would already be exited.",
     },
     "zh": {
         "action_plan_incomplete": "作战计划校验：缺少数值点位：{missing}。",
@@ -413,6 +453,8 @@ _NOTE_TEMPLATES: Dict[str, Dict[str, str]] = {
         "position_size_with_non_buy_decision": "作战计划校验：建议仓位“{position}”仅适用于已持仓者；当前结论并非买入，不构成新开仓依据。",
         "risk_control_stop_mismatch": "作战计划校验：风控说明提到 {rc_prices}，但止损位为 {stop}，计划中存在两个不同的止损位。",
         "secondary_entry_above_ideal": "作战计划校验：次级买入位 {secondary} 高于理想买入位 {entry}，计划混合了回踩买入与突破买入。",
+        "sell_plan_has_buy_entry": "作战计划校验：结论为卖出/减仓，但计划仍给出买入位 {entry}；不应据此开仓或加仓。",
+        "sell_stop_at_or_above_current_price": "作战计划校验：止损 {stop} 不低于现价 {price}；卖出/减仓结论下剩余仓位应已离场。",
     },
     "ko": {
         "action_plan_incomplete": "실행 계획 점검: 수치 가격대 누락: {missing}.",
@@ -429,6 +471,8 @@ _NOTE_TEMPLATES: Dict[str, Dict[str, str]] = {
         "position_size_with_non_buy_decision": "실행 계획 점검: 제안 비중 \"{position}\"은(는) 기존 보유자에게만 해당하며, 매수 결론이 아니므로 신규 진입 근거가 아닙니다.",
         "risk_control_stop_mismatch": "실행 계획 점검: 리스크 관리 문구는 {rc_prices}을(를) 언급하지만 손절가는 {stop}입니다. 손절 기준이 두 개입니다.",
         "secondary_entry_above_ideal": "실행 계획 점검: 보조 매수가 {secondary}이(가) 이상 매수가 {entry}보다 높습니다. 눌림목 매수와 돌파 매수가 섞여 있습니다.",
+        "sell_plan_has_buy_entry": "실행 계획 점검: 결론은 매도/비중 축소인데 계획에 매수가 {entry}이(가) 있습니다. 신규 진입이나 추가 매수 근거가 아닙니다.",
+        "sell_stop_at_or_above_current_price": "실행 계획 점검: 손절가 {stop}이(가) 현재가 {price} 이상입니다. 매도/비중 축소 결론에서는 잔여 포지션이 이미 청산되어야 합니다.",
     },
 }
 
