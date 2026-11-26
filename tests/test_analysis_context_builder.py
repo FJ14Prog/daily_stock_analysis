@@ -139,6 +139,31 @@ def test_quote_block_maps_available_missing_fallback_and_explicit_stale() -> Non
     assert explicit_fallback.items["price"].fallback_from == "primary_realtime_provider"
     assert "realtime_provider_fallback" not in explicit_fallback.warnings
 
+
+def test_yfinance_quote_is_available_unless_it_replaced_a_failed_primary() -> None:
+    # YFinance is the default US/HK/JP/KR/TW source; it used to be labelled
+    # "fallback", which marked every US quote as degraded.
+    primary = AnalysisContextBuilder.build(
+        _artifacts(realtime_quote=_quote(RealtimeSource.YFINANCE))
+    ).blocks["quote"]
+    assert primary.status == ContextFieldStatus.AVAILABLE
+    assert primary.source == "yfinance"
+    assert primary.warnings == []
+
+    replaced = AnalysisContextBuilder.build(
+        _artifacts(realtime_quote=_quote(RealtimeSource.YFINANCE, fallback_from="longbridge"))
+    ).blocks["quote"]
+    assert replaced.status == ContextFieldStatus.FALLBACK
+    assert replaced.items["price"].fallback_from == "longbridge"
+
+
+def test_yfinance_source_display_name() -> None:
+    from src.notification import NotificationService
+
+    service = NotificationService.__new__(NotificationService)
+    assert service._get_source_display_name("yfinance", "en") == "Yahoo Finance"
+    assert service._get_source_display_name("yfinance", "zh") == "雅虎财经"
+
     stale = AnalysisContextBuilder.build(
         _artifacts(metadata={"query_id": "q-1", "price_stale": True})
     ).blocks["quote"]

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- [修复] YFinance 实时行情来源标注：新增 `RealtimeSource.YFINANCE`，YFinance 作为美股/港股/日韩台默认来源时不再标记为 `fallback`（此前所有美股行情都显示“降级兜底/Fallback”并在分析上下文中被视为降级数据）；只有首选源失败、由 YFinance 接替时（`fallback_from` 有值）才标记为降级；报告来源显示为“雅虎财经 / Yahoo Finance”。
+
 - [改进] 行动计划校验覆盖卖出/减仓结论（仅追加说明，不改变结论）：计划仍给出买入位时提示 `sell_plan_has_buy_entry`（“暂无买点/等待站回 X”等表述不计为买入位）、止损不低于目标位或现价时提示，风控文字与止损不一致的检查同样适用。
 
 - [改进] 新闻来源质量与大盘复盘可追溯性：搜索结果统一剔除低质量来源（社交媒体、非标准端口 URL 如 `benzinga.com:8443`、文件服务器附件 PDF；可用 `NEWS_SOURCE_BLOCKLIST` 追加域名），个股提示词与“📎 Sources”同步生效；大盘复盘提示词中的新闻编号为 [N#] 并要求“消息催化”只描述新闻列表中的事件并标注 [N#]，不得凭记忆补充；复盘正文在“消息催化”后附由代码生成的 “📎 Sources” 列表（发布日期、标题与域名）。
