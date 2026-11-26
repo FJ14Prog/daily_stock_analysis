@@ -20,6 +20,7 @@ from src.schemas.analysis_context_pack import (
 
 _REALTIME_OVERLAY_WARNING = "intraday_realtime_overlay"
 _REALTIME_FALLBACK_WARNING = "realtime_provider_fallback"
+_COMPLETED_SESSION_OVERLAY_WARNING = "realtime_overlay_completed_session"
 _FUNDAMENTAL_FAILED_REASON = "fundamental_pipeline_failed"
 _QUALITY_BLOCK_WEIGHTS: Dict[str, int] = {
     "quote": 25,
@@ -264,10 +265,16 @@ def _build_technical_block(
     has_realtime_overlay = explicit_intraday_overlay or _has_realtime_overlay(
         artifacts.enhanced_context
     )
-    warnings = [_REALTIME_OVERLAY_WARNING] if has_realtime_overlay else []
+    # After the close (or before the next open) the overlaid bar is the final
+    # bar of a completed session, so the indicators are not partial.
+    completed_session = has_realtime_overlay and _overlay_on_completed_session(artifacts)
+    if completed_session:
+        warnings = [_COMPLETED_SESSION_OVERLAY_WARNING]
+    else:
+        warnings = [_REALTIME_OVERLAY_WARNING] if has_realtime_overlay else []
     block_status = (
         ContextFieldStatus.PARTIAL
-        if has_realtime_overlay
+        if has_realtime_overlay and not completed_session
         else ContextFieldStatus.AVAILABLE
     )
     items: Dict[str, AnalysisContextItem] = {
@@ -279,7 +286,11 @@ def _build_technical_block(
     }
     if has_realtime_overlay:
         items["intraday_overlay"] = AnalysisContextItem(
-            status=ContextFieldStatus.ESTIMATED,
+            status=(
+                ContextFieldStatus.AVAILABLE
+                if completed_session
+                else ContextFieldStatus.ESTIMATED
+            ),
             value=(artifacts.enhanced_context or {}).get("today"),
             warnings=list(warnings),
         )
@@ -716,6 +727,14 @@ def _has_explicit_intraday_overlay(enhanced_context: Dict[str, Any]) -> bool:
         return True
     estimated_fields = today.get("estimated_fields") or today.get("estimatedFields")
     return bool(estimated_fields)
+
+
+def _overlay_on_completed_session(artifacts: "PipelineAnalysisArtifacts") -> bool:
+    """True only when the phase context explicitly says the bar is not partial."""
+    flag = _today_metadata_value(artifacts.enhanced_context, "is_partial_bar", "isPartialBar")
+    if flag is None and isinstance(artifacts.phase, dict):
+        flag = artifacts.phase.get("is_partial_bar")
+    return flag is False
 
 
 def _has_realtime_overlay(enhanced_context: Dict[str, Any]) -> bool:

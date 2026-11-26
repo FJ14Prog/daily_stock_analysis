@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- [修复] 分析上下文技术面状态：今日K线被实时行情覆盖时，若阶段上下文明确 `is_partial_bar=false`（盘后/盘前，所属交易日已收盘），技术面不再标记为 `partial`，改为 `available` 并附 `realtime_overlay_completed_session` 提示；盘中或状态未知时仍保持 `partial`。
+
 - [修复] YFinance 实时行情来源标注：新增 `RealtimeSource.YFINANCE`，YFinance 作为美股/港股/日韩台默认来源时不再标记为 `fallback`（此前所有美股行情都显示“降级兜底/Fallback”并在分析上下文中被视为降级数据）；只有首选源失败、由 YFinance 接替时（`fallback_from` 有值）才标记为降级；报告来源显示为“雅虎财经 / Yahoo Finance”。
 
 - [改进] 行动计划校验覆盖卖出/减仓结论（仅追加说明，不改变结论）：计划仍给出买入位时提示 `sell_plan_has_buy_entry`（“暂无买点/等待站回 X”等表述不计为买入位）、止损不低于目标位或现价时提示，风控文字与止损不一致的检查同样适用。

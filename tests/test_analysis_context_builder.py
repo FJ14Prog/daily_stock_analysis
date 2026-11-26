@@ -357,6 +357,44 @@ def test_technical_missing_and_realtime_overlay_statuses_are_explicit() -> None:
     assert explicit_block.metadata["estimated_fields"] == ["close", "ma5"]
 
 
+def test_realtime_overlay_after_the_close_is_not_partial() -> None:
+    # Night run after the US close (postmarket): the overlaid bar is final.
+    overlay = {
+        "close": 355.58,
+        "data_source": "realtime:yfinance",
+        "is_estimated": True,
+        "estimated_fields": ["close", "ma5"],
+        "is_partial_bar": False,
+    }
+    pack = AnalysisContextBuilder.build(
+        _artifacts(
+            phase={"market": "us", "phase": "postmarket", "is_partial_bar": False},
+            enhanced_context={"today": dict(overlay)},
+        )
+    )
+    block = pack.blocks["technical"]
+    assert block.status == ContextFieldStatus.AVAILABLE
+    assert block.items["intraday_overlay"].status == ContextFieldStatus.AVAILABLE
+    assert block.warnings == ["realtime_overlay_completed_session"]
+    assert "technical: partial" not in pack.data_quality.limitations
+
+    # Flag only on the phase context (not copied to today) is enough.
+    today_without_flag = {k: v for k, v in overlay.items() if k != "is_partial_bar"}
+    from_phase = AnalysisContextBuilder.build(
+        _artifacts(
+            phase={"market": "us", "phase": "premarket", "is_partial_bar": False},
+            enhanced_context={"today": today_without_flag},
+        )
+    ).blocks["technical"]
+    assert from_phase.status == ContextFieldStatus.AVAILABLE
+
+    # Unknown partial-bar state stays conservative.
+    unknown = AnalysisContextBuilder.build(
+        _artifacts(phase={"market": "us"}, enhanced_context={"today": today_without_flag})
+    ).blocks["technical"]
+    assert unknown.status == ContextFieldStatus.PARTIAL
+
+
 def test_chip_missing_defaults_to_missing_and_explicit_not_supported() -> None:
     missing = AnalysisContextBuilder.build(_artifacts(chip_data=None)).blocks["chip"]
     assert missing.status == ContextFieldStatus.MISSING
