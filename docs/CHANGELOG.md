@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- [修复] 盘前/非交易日分析：若已存储的“今日”K线正是最近一个已收盘交易日（`effective_daily_bar_date`），不再用实时行情覆盖，避免把上一交易日的价格标成当天日期并标记为估算；报告显示“上一完整交易日行情”。已存储K线更早时仍按原逻辑覆盖。
+
 - [修复] 分析上下文技术面状态：今日K线被实时行情覆盖时，若阶段上下文明确 `is_partial_bar=false`（盘后/盘前，所属交易日已收盘），技术面不再标记为 `partial`，改为 `available` 并附 `realtime_overlay_completed_session` 提示；盘中或状态未知时仍保持 `partial`。
 
 - [修复] YFinance 实时行情来源标注：新增 `RealtimeSource.YFINANCE`，YFinance 作为美股/港股/日韩台默认来源时不再标记为 `fallback`（此前所有美股行情都显示“降级兜底/Fallback”并在分析上下文中被视为降级数据）；只有首选源失败、由 YFinance 接替时（`fallback_from` 有值）才标记为降级；报告来源显示为“雅虎财经 / Yahoo Finance”。
