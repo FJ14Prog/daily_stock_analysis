@@ -1136,7 +1136,20 @@ class StockAnalysisPipeline:
 
         # Issue #234：盘中分析使用实时 OHLC 与趋势 MA 覆盖 today。
         # 防护条件：trend_result.ma5 > 0 表示 MA 计算已成功且数据量充足。
-        if realtime_quote and trend_result and trend_result.ma5 > 0:
+        # Before the open (or on a non-trading day) the stored daily bar of the
+        # last completed session is final: overlaying the quote would relabel
+        # that session's prices with today's calendar date.
+        if (
+            realtime_quote
+            and trend_result
+            and trend_result.ma5 > 0
+            and self._stored_bar_is_last_complete_session(enhanced, market_phase_context)
+        ):
+            logger.debug(
+                "[context] %s: premarket/non-trading, keep stored bar of the last completed session",
+                enhanced.get('code'),
+            )
+        elif realtime_quote and trend_result and trend_result.ma5 > 0:
             price = getattr(realtime_quote, 'price', None)
             if price is not None and price > 0:
                 yesterday_close = None
@@ -2805,6 +2818,21 @@ class StockAnalysisPipeline:
             return "明显放量"
         else:
             return "巨量"
+
+    @staticmethod
+    def _stored_bar_is_last_complete_session(
+        enhanced: Dict[str, Any],
+        market_phase_context: Optional[Dict[str, Any]],
+    ) -> bool:
+        """True before the open / on non-trading days when today's stored bar
+        already is the last completed session (no realtime overlay needed)."""
+        phase_ctx = market_phase_context if isinstance(market_phase_context, dict) else {}
+        if phase_ctx.get('phase') not in ('premarket', 'non_trading'):
+            return False
+        effective = str(phase_ctx.get('effective_daily_bar_date') or '')[:10]
+        today = enhanced.get('today')
+        today_date = str(today.get('date') or '')[:10] if isinstance(today, dict) else ''
+        return bool(effective) and today_date == effective
 
     @staticmethod
     def _is_realtime_quote_for_session(

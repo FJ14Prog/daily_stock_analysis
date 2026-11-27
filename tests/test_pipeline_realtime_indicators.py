@@ -1003,6 +1003,44 @@ class TestEnhanceContextRealtimeOverride(unittest.TestCase):
             )
         self.assertEqual(enhanced_existing["yesterday"]["date"], "2026-11-12")
 
+    def test_premarket_keeps_stored_complete_bar_without_realtime_overlay(self) -> None:
+        # Before the open the stored 11-12 bar is the last completed session;
+        # overlaying the quote used to relabel it with the 11-13 calendar date.
+        trend = self._kr_005930_trend()
+        quote = self._kr_005930_quote(provider_timestamp="2026-11-12T15:30:00+09:00")
+        now = datetime(2026, 11, 13, 8, 0, tzinfo=ZoneInfo("Asia/Seoul"))
+        phase = build_market_phase_context(market="kr", current_time=now).to_dict()
+        self.assertEqual((phase["phase"], phase["effective_daily_bar_date"]), ("premarket", "2026-11-12"))
+        with patch("src.core.pipeline.get_market_now", return_value=now):
+            enhanced = self.pipeline._enhance_context(
+                self._kr_005930_context(),
+                quote,
+                None,
+                trend,
+                stock_name="SamsungElec",
+                fundamental_context={"status": "not_supported"},
+                market_phase_context=phase,
+            )
+        self.assertEqual(enhanced["today"]["date"], "2026-11-12")
+        self.assertEqual(enhanced["today"]["close"], 208000.0)
+        self.assertNotIn("data_source", enhanced["today"])
+        self.assertNotIn("is_estimated", enhanced["today"])
+        self.assertEqual(enhanced["date"], "2026-11-12")
+
+        # Stored bar older than the last completed session: the overlay still applies.
+        stale_ctx = self._kr_005930_context(today_date="2026-11-11", yesterday_date="2026-11-10")
+        with patch("src.core.pipeline.get_market_now", return_value=now):
+            stale = self.pipeline._enhance_context(
+                stale_ctx,
+                quote,
+                None,
+                trend,
+                stock_name="SamsungElec",
+                fundamental_context={"status": "not_supported"},
+                market_phase_context=phase,
+            )
+        self.assertTrue(str(stale["today"].get("data_source", "")).startswith("realtime:"))
+
 
 if __name__ == "__main__":
     unittest.main()
